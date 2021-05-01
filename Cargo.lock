@@ -710,6 +710,23 @@ dependencies = [
 
 [[package]]
 name = "console"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c0994e656bba7b922d8dd1245db90672ffb701e684e45be58f20719d69abc5a"
+dependencies = [
+ "encode_unicode",
+ "lazy_static",
+ "libc",
+ "regex",
+ "terminal_size",
+ "termios",
+ "unicode-width",
+ "winapi 0.3.8",
+ "winapi-util",
+]
+
+[[package]]
+name = "console"
 version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3993e6445baa160675931ec041a5e03ca84b9c6e32a056150d3aa2bdda0a1f45"
@@ -812,6 +829,16 @@ dependencies = [
  "num_cpus",
  "rand 0.4.6",
  "thread-scoped",
+]
+
+[[package]]
+name = "crossbeam-channel"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b153fe7cbef478c567df0f972e02e6d736db11affe43dfc9c56a9374d1adfb87"
+dependencies = [
+ "crossbeam-utils 0.7.2",
+ "maybe-uninit",
 ]
 
 [[package]]
@@ -1060,7 +1087,7 @@ version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c9dd058f8b65922819fabb4a41e7d1964e56344042c26efbccd465202c23fa0c"
 dependencies = [
- "console",
+ "console 0.14.1",
  "lazy_static",
  "tempfile",
  "zeroize",
@@ -2033,7 +2060,7 @@ version = "0.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2d207dc617c7a380ab07ff572a6e52fa202a2a8f355860ac9c38e23f8196be1b"
 dependencies = [
- "console",
+ "console 0.14.1",
  "lazy_static",
  "number_prefix",
  "regex",
@@ -3532,7 +3559,7 @@ version = "1.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d78120e2c850279833f1dd3582f730c4ab53ed95aeaaaa862a2a5c71b1656d8e"
 dependencies = [
- "crossbeam-channel",
+ "crossbeam-channel 0.5.1",
  "crossbeam-deque 0.8.0",
  "crossbeam-utils 0.8.1",
  "lazy_static",
@@ -4197,7 +4224,7 @@ name = "solana-accounts-bench"
 version = "1.8.0"
 dependencies = [
  "clap 2.33.3",
- "crossbeam-channel",
+ "crossbeam-channel 0.5.1",
  "log 0.4.14",
  "rand 0.7.3",
  "rayon",
@@ -4238,7 +4265,7 @@ name = "solana-banking-bench"
 version = "1.8.0"
 dependencies = [
  "clap 2.33.3",
- "crossbeam-channel",
+ "crossbeam-channel 0.5.1",
  "log 0.4.14",
  "rand 0.7.3",
  "rayon",
@@ -4412,7 +4439,7 @@ dependencies = [
  "bs58 0.4.0",
  "chrono",
  "clap 2.33.3",
- "console",
+ "console 0.14.1",
  "const_format",
  "criterion-stats",
  "ctrlc",
@@ -4469,7 +4496,7 @@ dependencies = [
  "Inflector",
  "base64 0.13.0",
  "chrono",
- "console",
+ "console 0.14.1",
  "humantime",
  "indicatif",
  "serde",
@@ -4552,7 +4579,7 @@ dependencies = [
  "bv",
  "byteorder",
  "chrono",
- "crossbeam-channel",
+ "crossbeam-channel 0.5.1",
  "ed25519-dalek",
  "flate2",
  "fs_extra",
@@ -4666,7 +4693,7 @@ name = "solana-download-utils"
 version = "1.8.0"
 dependencies = [
  "bzip2",
- "console",
+ "console 0.14.1",
  "indicatif",
  "log 0.4.14",
  "reqwest",
@@ -4869,7 +4896,7 @@ dependencies = [
  "bzip2",
  "chrono",
  "clap 2.33.3",
- "console",
+ "console 0.14.1",
  "ctrlc",
  "dirs-next",
  "indicatif",
@@ -4918,7 +4945,7 @@ dependencies = [
  "byteorder",
  "chrono",
  "chrono-humanize",
- "crossbeam-channel",
+ "crossbeam-channel 0.5.1",
  "ed25519-dalek",
  "fs_extra",
  "futures 0.3.15",
@@ -5005,7 +5032,7 @@ name = "solana-local-cluster"
 version = "1.8.0"
 dependencies = [
  "assert_matches",
- "crossbeam-channel",
+ "crossbeam-channel 0.5.1",
  "fs_extra",
  "gag",
  "itertools 0.10.1",
@@ -5197,7 +5224,7 @@ version = "1.8.0"
 dependencies = [
  "bincode",
  "core_affinity",
- "crossbeam-channel",
+ "crossbeam-channel 0.5.1",
  "log 0.4.14",
  "matches",
  "rand 0.7.3",
@@ -5339,7 +5366,7 @@ name = "solana-remote-wallet"
 version = "1.8.0"
 dependencies = [
  "base32",
- "console",
+ "console 0.14.1",
  "dialoguer",
  "hidapi",
  "log 0.4.14",
@@ -5360,7 +5387,7 @@ dependencies = [
  "base64 0.12.3",
  "bincode",
  "bs58 0.4.0",
- "crossbeam-channel",
+ "crossbeam-channel 0.5.1",
  "itertools 0.10.1",
  "jsonrpc-core",
  "jsonrpc-core-client",
@@ -5402,6 +5429,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-rpc-node"
+version = "1.8.0"
+dependencies = [
+ "bincode",
+ "chrono",
+ "clap 2.33.3",
+ "console 0.11.3",
+ "crossbeam-channel 0.4.4",
+ "jsonrpc-core",
+ "jsonrpc-core-client",
+ "jsonrpc-derive",
+ "jsonrpc-ipc-server",
+ "jsonrpc-server-utils",
+ "log 0.4.14",
+ "rand 0.7.3",
+ "serde",
+ "solana-clap-utils",
+ "solana-cli-config",
+ "solana-client",
+ "solana-core",
+ "solana-download-utils",
+ "solana-genesis-utils",
+ "solana-ledger",
+ "solana-logger 1.8.0",
+ "solana-metrics",
+ "solana-net-utils",
+ "solana-runtime",
+ "solana-sdk",
+ "solana-version",
+]
+
+[[package]]
 name = "solana-runtime"
 version = "1.8.0"
 dependencies = [
@@ -5412,7 +5471,7 @@ dependencies = [
  "bv",
  "byteorder",
  "bzip2",
- "crossbeam-channel",
+ "crossbeam-channel 0.5.1",
  "dashmap",
  "dir-diff",
  "flate2",
@@ -5675,7 +5734,7 @@ dependencies = [
  "bincode",
  "chrono",
  "clap 2.33.3",
- "console",
+ "console 0.14.1",
  "csv",
  "ctrlc",
  "dirs-next",
@@ -5739,7 +5798,7 @@ dependencies = [
  "bincode",
  "chrono",
  "clap 2.33.3",
- "console",
+ "console 0.14.1",
  "core_affinity",
  "fd-lock",
  "indicatif",
@@ -6131,6 +6190,15 @@ checksum = "86ca8ced750734db02076f44132d802af0b33b09942331f4459dde8636fd2406"
 dependencies = [
  "libc",
  "winapi 0.3.8",
+]
+
+[[package]]
+name = "termios"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "411c5bf740737c7918b8b1fe232dca4dc9f8e754b8ad5e20966814001ed0ac6b"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

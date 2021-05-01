@@ -71,6 +71,7 @@ members = [
     "cli",
     "rayon-threadlimit",
     "watchtower",
+    "rpc-node",
 ]
 
 exclude = [
