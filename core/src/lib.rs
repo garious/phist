@@ -43,6 +43,8 @@ pub mod request_response;
 mod result;
 pub mod retransmit_stage;
 pub mod rewards_recorder_service;
+pub mod rpc_node_if;
+pub mod rpc_completed_slots_service;
 pub mod sample_performance_service;
 pub mod serve_repair;
 pub mod serve_repair_service;

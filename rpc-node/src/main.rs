@@ -1,10 +1,12 @@
 #![allow(clippy::integer_arithmetic)]
 use crossbeam_channel::unbounded;
 use {
+    bincode::deserialize,
     clap::{crate_description, crate_name, value_t, values_t, App, AppSettings, Arg},
     log::*,
     solana_clap_utils::keypair::SKIP_SEED_PHRASE_VALIDATION_ARG,
     solana_core::{
+        rpc_node_if::{RpcNodePacket},
         cluster_info::ClusterInfo,
         contact_info::ContactInfo,
         max_slots::MaxSlots,
@@ -28,11 +30,11 @@ use {
         hardened_unpack::MAX_GENESIS_ARCHIVE_UNPACKED_SIZE,
         snapshot_utils,
     },
-    solana_sdk::hash::Hash,
+    solana_sdk::{clock::Slot, hash::Hash},
     std::{
         env,
         io::Read,
-        net::TcpListener,
+        net::{SocketAddr, TcpListener},
         path::PathBuf,
         process::exit,
         sync::{
@@ -42,96 +44,30 @@ use {
     },
 };
 
-pub fn main() {
-    let matches = App::new(crate_name!())
-        .about(crate_description!())
-        .version(solana_version::version!())
-        .setting(AppSettings::VersionlessSubcommands)
-        .setting(AppSettings::InferSubcommands)
-        .arg(
-            Arg::with_name(SKIP_SEED_PHRASE_VALIDATION_ARG.name)
-                .long(SKIP_SEED_PHRASE_VALIDATION_ARG.long)
-                .help(SKIP_SEED_PHRASE_VALIDATION_ARG.help),
-        )
-        .arg(
-            Arg::with_name("ledger_path")
-                .short("l")
-                .long("ledger")
-                .value_name("DIR")
-                .takes_value(true)
-                .required(true)
-                .default_value("ledger")
-                .help("Use DIR as ledger location"),
-        )
-        .arg(
-            Arg::with_name("target_validator")
-                .long("target-validator")
-                .value_name("IP:PORT")
-                .takes_value(true)
-                .required(true)
-                .help("RPC to download from"),
-        )
-        .arg(
-            Arg::with_name("snapshot_hash")
-                .long("snapshot-hash")
-                .value_name("HASH")
-                .takes_value(true)
-                .required(true)
-                .help("Snapshot hash to download"),
-        )
-        .arg(
-            Arg::with_name("account_paths")
-                .long("accounts")
-                .value_name("PATHS")
-                .takes_value(true)
-                .multiple(true)
-                .help("Comma separated persistent accounts location"),
-        )
-        .get_matches();
+struct RpcNodeConfig {
+    rpc_source_addr: SocketAddr,
+    rpc_addr: SocketAddr,
+    rpc_pubsub_addr: SocketAddr,
+    ledger_path: PathBuf,
+    snapshot_output_dir: PathBuf,
+    snapshot_path: PathBuf,
+    account_paths: Vec<PathBuf>,
+    snapshot_slot: Slot,
+    snapshot_hash: Hash,
+}
 
-    let snapshot_hash = value_t!(matches, "snapshot_hash", Hash).unwrap();
-    let snapshot_slot = value_t!(matches, "snapshot_slot", u64).unwrap();
-    let ledger_path = PathBuf::from(matches.value_of("ledger_path").unwrap());
-    let snapshot_output_dir = if matches.is_present("snapshots") {
-        PathBuf::from(matches.value_of("snapshots").unwrap())
-    } else {
-        ledger_path.clone()
-    };
-    let snapshot_path = snapshot_output_dir.join("snapshot");
-
-    let account_paths: Vec<PathBuf> =
-        if let Ok(account_paths) = values_t!(matches, "account_paths", String) {
-            account_paths
-                .join(",")
-                .split(',')
-                .map(PathBuf::from)
-                .collect()
-        } else {
-            vec![ledger_path.join("accounts")]
-        };
-
-    let rpc_source_addr = solana_net_utils::parse_host_port(
-        matches.value_of("rpc_source").unwrap(),
-    )
-    .unwrap_or_else(|e| {
-        eprintln!("failed to parse entrypoint address: {}", e);
-        exit(1);
-    });
-
-    let rpc_addr = solana_net_utils::parse_host_port(matches.value_of("rpc_port").unwrap())
-        .unwrap_or_else(|e| {
-            eprintln!("failed to parse entrypoint address: {}", e);
-            exit(1);
-        });
-
-    let rpc_pubsub_addr = solana_net_utils::parse_host_port(
-        matches.value_of("rpc_pubsub").unwrap(),
-    )
-    .unwrap_or_else(|e| {
-        eprintln!("failed to parse entrypoint address: {}", e);
-        exit(1);
-    });
-
+fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
+    let RpcNodeConfig {
+        rpc_source_addr,
+        rpc_addr,
+        rpc_pubsub_addr,
+        ledger_path,
+        snapshot_output_dir,
+        snapshot_hash,
+        snapshot_path,
+        account_paths,
+        snapshot_slot,
+    } = rpc_node_config;
     let genesis_config = download_then_check_genesis_hash(
         &rpc_source_addr,
         &ledger_path,
@@ -279,9 +215,13 @@ pub fn main() {
     for stream in listener.incoming() {
         match stream {
             Ok(mut stream) => loop {
-                let mut buffer = [0; 1024];
-                if let Ok(x) = stream.read(&mut buffer) {
-                    info!("connection: {:?}", x);
+                let mut buffer = [0; 64 * 1024];
+                if let Ok(size_read) = stream.read(&mut buffer) {
+                    info!("connection: {:?}", size_read);
+                    match deserialize(&buffer[..size_read]) {
+                        RpcNodePacket::AccountsUpdate(accounts_update) => {}
+                        RpcNodePacket::SlotUpdate(slot_update) => {}
+                    }
                 }
             },
             Err(e) => {
@@ -293,4 +233,129 @@ pub fn main() {
     exit.store(true, Ordering::Relaxed);
     json_rpc_service.map(|t| t.join().unwrap());
     pubsub_service.map(|t| t.join().unwrap());
+}
+
+pub fn main() {
+    let matches = App::new(crate_name!())
+        .about(crate_description!())
+        .version(solana_version::version!())
+        .setting(AppSettings::VersionlessSubcommands)
+        .setting(AppSettings::InferSubcommands)
+        .arg(
+            Arg::with_name(SKIP_SEED_PHRASE_VALIDATION_ARG.name)
+                .long(SKIP_SEED_PHRASE_VALIDATION_ARG.long)
+                .help(SKIP_SEED_PHRASE_VALIDATION_ARG.help),
+        )
+        .arg(
+            Arg::with_name("ledger_path")
+                .short("l")
+                .long("ledger")
+                .value_name("DIR")
+                .takes_value(true)
+                .required(true)
+                .default_value("ledger")
+                .help("Use DIR as ledger location"),
+        )
+        .arg(
+            Arg::with_name("target_validator")
+                .long("target-validator")
+                .value_name("IP:PORT")
+                .takes_value(true)
+                .required(true)
+                .help("RPC to download from"),
+        )
+        .arg(
+            Arg::with_name("snapshot_hash")
+                .long("snapshot-hash")
+                .value_name("HASH")
+                .takes_value(true)
+                .required(true)
+                .help("Snapshot hash to download"),
+        )
+        .arg(
+            Arg::with_name("account_paths")
+                .long("accounts")
+                .value_name("PATHS")
+                .takes_value(true)
+                .multiple(true)
+                .help("Comma separated persistent accounts location"),
+        )
+        .get_matches();
+
+    let snapshot_hash = value_t!(matches, "snapshot_hash", Hash).unwrap();
+    let snapshot_slot = value_t!(matches, "snapshot_slot", u64).unwrap();
+    let ledger_path = PathBuf::from(matches.value_of("ledger_path").unwrap());
+    let snapshot_output_dir = if matches.is_present("snapshots") {
+        PathBuf::from(matches.value_of("snapshots").unwrap())
+    } else {
+        ledger_path.clone()
+    };
+    let snapshot_path = snapshot_output_dir.join("snapshot");
+
+    let account_paths: Vec<PathBuf> =
+        if let Ok(account_paths) = values_t!(matches, "account_paths", String) {
+            account_paths
+                .join(",")
+                .split(',')
+                .map(PathBuf::from)
+                .collect()
+        } else {
+            vec![ledger_path.join("accounts")]
+        };
+
+    let rpc_source_addr = solana_net_utils::parse_host_port(
+        matches.value_of("rpc_source").unwrap(),
+    )
+    .unwrap_or_else(|e| {
+        eprintln!("failed to parse entrypoint address: {}", e);
+        exit(1);
+    });
+
+    let rpc_addr = solana_net_utils::parse_host_port(matches.value_of("rpc_port").unwrap())
+        .unwrap_or_else(|e| {
+            eprintln!("failed to parse entrypoint address: {}", e);
+            exit(1);
+        });
+
+    let rpc_pubsub_addr = solana_net_utils::parse_host_port(
+        matches.value_of("rpc_pubsub").unwrap(),
+    )
+    .unwrap_or_else(|e| {
+        eprintln!("failed to parse entrypoint address: {}", e);
+        exit(1);
+    });
+
+    let config = RpcNodeConfig {
+        snapshot_output_dir,
+        snapshot_hash,
+        snapshot_slot,
+        ledger_path,
+        account_paths,
+    };
+    run_rpc_node(config);
+}
+
+#[cfg(test)]
+pub mod test {
+    #[test]
+    fn test_rpc_node() {
+        solana_logger::setup();
+        const NUM_NODES: usize = 1;
+        let cluster = LocalCluster::new(&mut ClusterConfig {
+            node_stakes: vec![999_990; NUM_NODES],
+            cluster_lamports: 200_000_000,
+            validator_configs: make_identical_validator_configs(
+                &ValidatorConfig::default(),
+                NUM_NODES,
+            ),
+            native_instruction_processors,
+            ..ClusterConfig::default()
+        });
+
+        let config = RpcNodeConfig {
+            rpc_addr: "127.0.0.1:8001".parse().unwrap(),
+        };
+
+        run_rpc_node(config);
+    }
 }
