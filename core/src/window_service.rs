@@ -3,7 +3,6 @@
 //!
 use crate::{
     cluster_info_vote_listener::VerifiedVoteReceiver,
-    cluster_slots::ClusterSlots,
     completed_data_sets_service::CompletedDataSetsSender,
     outstanding_requests::OutstandingRequests,
     repair_response,
@@ -131,11 +130,14 @@ fn verify_repair(
     repair_meta
         .as_ref()
         .map(|repair_meta| {
-            outstanding_requests.register_response(
-                repair_meta.nonce,
-                shred,
-                solana_sdk::timing::timestamp(),
-            )
+            outstanding_requests
+                .register_response(
+                    repair_meta.nonce,
+                    shred,
+                    solana_sdk::timing::timestamp(),
+                    |_| (),
+                )
+                .is_some()
         })
         .unwrap_or(true)
 }
@@ -329,7 +331,6 @@ impl WindowService {
     #[allow(clippy::too_many_arguments)]
     pub fn new<F>(
         blockstore: Arc<Blockstore>,
-        cluster_info: Arc<ClusterInfo>,
         verified_receiver: CrossbeamReceiver<Vec<Packets>>,
         retransmit: PacketSender,
         repair_socket: Arc<UdpSocket>,
@@ -337,7 +338,6 @@ impl WindowService {
         repair_info: RepairInfo,
         leader_schedule_cache: &Arc<LeaderScheduleCache>,
         shred_filter: F,
-        cluster_slots: Arc<ClusterSlots>,
         verified_vote_receiver: VerifiedVoteReceiver,
         completed_data_sets_sender: CompletedDataSetsSender,
         duplicate_slots_sender: DuplicateSlotSender,
@@ -352,14 +352,14 @@ impl WindowService {
             Arc::new(RwLock::new(OutstandingRequests::default()));
 
         let bank_forks = repair_info.bank_forks.clone();
+        let cluster_info = repair_info.cluster_info.clone();
+        let id = cluster_info.id();
 
         let repair_service = RepairService::new(
             blockstore.clone(),
             exit.clone(),
             repair_socket,
-            cluster_info.clone(),
             repair_info,
-            cluster_slots,
             verified_vote_receiver,
             outstanding_requests.clone(),
         );
@@ -368,7 +368,7 @@ impl WindowService {
         let (duplicate_sender, duplicate_receiver) = unbounded();
 
         let t_check_duplicate = Self::start_check_duplicate_thread(
-            cluster_info.clone(),
+            cluster_info,
             exit.clone(),
             blockstore.clone(),
             duplicate_receiver,
@@ -386,7 +386,7 @@ impl WindowService {
         );
 
         let t_window = Self::start_recv_window_thread(
-            cluster_info.id(),
+            id,
             exit,
             &blockstore,
             insert_sender,

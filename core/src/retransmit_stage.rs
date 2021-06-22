@@ -571,10 +571,11 @@ impl RetransmitStage {
             epoch_schedule,
             duplicate_slots_reset_sender,
             repair_validators,
+            cluster_info: cluster_info.clone(),
+            cluster_slots,
         };
         let window_service = WindowService::new(
             blockstore,
-            cluster_info.clone(),
             verified_receiver,
             retransmit_sender,
             repair_socket,
@@ -596,7 +597,6 @@ impl RetransmitStage {
                 );
                 rv && is_connected
             },
-            cluster_slots,
             verified_vote_receiver,
             completed_data_sets_sender,
             duplicate_slots_sender,

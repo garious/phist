@@ -29,8 +29,15 @@ where
         nonce
     }
 
-    pub fn register_response(&mut self, nonce: u32, response: &S, now: u64) -> bool {
-        let (is_valid, should_delete) = self
+    pub fn register_response<R>(
+        &mut self,
+        nonce: u32,
+        response: &S,
+        now: u64,
+        // runs if the response was valid
+        success_fn: impl Fn(&T) -> R,
+    ) -> Option<R> {
+        let (response, should_delete) = self
             .requests
             .get_mut(&nonce)
             .map(|status| {
@@ -39,12 +46,15 @@ where
                     && status.request.verify_response(response)
                 {
                     status.num_expected_responses -= 1;
-                    (true, status.num_expected_responses == 0)
+                    (
+                        Some(success_fn(&status.request)),
+                        status.num_expected_responses == 0,
+                    )
                 } else {
-                    (false, true)
+                    (None, true)
                 }
             })
-            .unwrap_or((false, false));
+            .unwrap_or((None, false));
 
         if should_delete {
             self.requests
@@ -52,7 +62,7 @@ where
                 .expect("Delete must delete existing object");
         }
 
-        is_valid
+        response
     }
 }
 
@@ -103,7 +113,9 @@ pub(crate) mod tests {
             .unwrap()
             .expire_timestamp;
 
-        assert!(!outstanding_requests.register_response(nonce, &shred, expire_timestamp + 1));
+        assert!(outstanding_requests
+            .register_response(nonce, &shred, expire_timestamp + 1, |_| ())
+            .is_none());
         assert!(outstanding_requests.requests.get(&nonce).is_none());
     }
 
@@ -127,7 +139,9 @@ pub(crate) mod tests {
         assert!(num_expected_responses > 1);
 
         // Response that passes all checks should decrease num_expected_responses
-        assert!(outstanding_requests.register_response(nonce, &shred, expire_timestamp - 1));
+        assert!(outstanding_requests
+            .register_response(nonce, &shred, expire_timestamp - 1, |_| ())
+            .is_some());
         num_expected_responses -= 1;
         assert_eq!(
             outstanding_requests
@@ -139,8 +153,12 @@ pub(crate) mod tests {
         );
 
         // Response with incorrect nonce is ignored
-        assert!(!outstanding_requests.register_response(nonce + 1, &shred, expire_timestamp - 1));
-        assert!(!outstanding_requests.register_response(nonce + 1, &shred, expire_timestamp));
+        assert!(outstanding_requests
+            .register_response(nonce + 1, &shred, expire_timestamp - 1, |_| ())
+            .is_none());
+        assert!(outstanding_requests
+            .register_response(nonce + 1, &shred, expire_timestamp, |_| ())
+            .is_none());
         assert_eq!(
             outstanding_requests
                 .requests
@@ -152,7 +170,9 @@ pub(crate) mod tests {
 
         // Response with timestamp over limit should remove status, preventing late
         // responses from being accepted
-        assert!(!outstanding_requests.register_response(nonce, &shred, expire_timestamp));
+        assert!(outstanding_requests
+            .register_response(nonce, &shred, expire_timestamp, |_| ())
+            .is_none());
         assert!(outstanding_requests.requests.get(&nonce).is_none());
 
         // If number of outstanding requests hits zero, should also remove the entry
@@ -170,7 +190,9 @@ pub(crate) mod tests {
         assert!(num_expected_responses > 1);
         for _ in 0..num_expected_responses {
             assert!(outstanding_requests.requests.get(&nonce).is_some());
-            assert!(outstanding_requests.register_response(nonce, &shred, expire_timestamp - 1));
+            assert!(outstanding_requests
+                .register_response(nonce, &shred, expire_timestamp - 1, |_| ())
+                .is_some());
         }
         assert!(outstanding_requests.requests.get(&nonce).is_none());
     }

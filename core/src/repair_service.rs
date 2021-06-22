@@ -1,6 +1,7 @@
 //! The `repair_service` module implements the tools necessary to generate a thread which
 //! regularly finds missing shreds in the ledger and sends repair requests for those shreds
 use crate::{
+    ancestor_hashes_service::AncestorHashesService,
     cluster_info_vote_listener::VerifiedVoteReceiver,
     cluster_slots::ClusterSlots,
     duplicate_repair_status::DuplicateSlotRepairStatus,
@@ -19,7 +20,11 @@ use solana_ledger::{
 use solana_measure::measure::Measure;
 use solana_runtime::{bank_forks::BankForks, contains::Contains};
 use solana_sdk::{
-    clock::Slot, epoch_schedule::EpochSchedule, hash::Hash, pubkey::Pubkey, timing::timestamp,
+    clock::{BankId, Slot},
+    epoch_schedule::EpochSchedule,
+    hash::Hash,
+    pubkey::Pubkey,
+    timing::timestamp,
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -33,8 +38,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub type DuplicateSlotsResetSender = CrossbeamSender<Slot>;
-pub type DuplicateSlotsResetReceiver = CrossbeamReceiver<Slot>;
+pub type DuplicateSlotsResetSender = CrossbeamSender<Vec<(Slot, Hash)>>;
+pub type DuplicateSlotsResetReceiver = CrossbeamReceiver<Vec<(Slot, Hash)>>;
 pub type ConfirmedSlotsSender = CrossbeamSender<Vec<Slot>>;
 pub type ConfirmedSlotsReceiver = CrossbeamReceiver<Vec<Slot>>;
 pub type OutstandingShredRepairs = OutstandingRequests<ShredRepairType>;
@@ -44,6 +49,12 @@ pub struct SlotRepairs {
     highest_shred_index: u64,
     // map from pubkey to total number of requests
     pubkey_repairs: HashMap<Pubkey, u64>,
+}
+
+impl SlotRepairs {
+    pub fn pubkey_repairs(&self) -> &HashMap<Pubkey, u64> {
+        &self.pubkey_repairs
+    }
 }
 
 #[derive(Default, Debug)]
@@ -111,8 +122,11 @@ pub const MAX_DUPLICATE_WAIT_MS: usize = 10_000;
 pub const REPAIR_MS: u64 = 100;
 pub const MAX_ORPHANS: usize = 5;
 
+#[derive(Clone)]
 pub struct RepairInfo {
     pub bank_forks: Arc<RwLock<BankForks>>,
+    pub cluster_info: Arc<ClusterInfo>,
+    pub cluster_slots: Arc<ClusterSlots>,
     pub epoch_schedule: EpochSchedule,
     pub duplicate_slots_reset_sender: DuplicateSlotsResetSender,
     pub repair_validators: Option<HashSet<Pubkey>>,
@@ -134,6 +148,7 @@ impl Default for RepairSlotRange {
 
 pub struct RepairService {
     t_repair: JoinHandle<()>,
+    ancestor_hashes_service: AncestorHashesService,
 }
 
 impl RepairService {
@@ -141,48 +156,58 @@ impl RepairService {
         blockstore: Arc<Blockstore>,
         exit: Arc<AtomicBool>,
         repair_socket: Arc<UdpSocket>,
-        cluster_info: Arc<ClusterInfo>,
         repair_info: RepairInfo,
-        cluster_slots: Arc<ClusterSlots>,
         verified_vote_receiver: VerifiedVoteReceiver,
         outstanding_requests: Arc<RwLock<OutstandingShredRepairs>>,
     ) -> Self {
-        let t_repair = Builder::new()
-            .name("solana-repair-service".to_string())
-            .spawn(move || {
-                Self::run(
-                    &blockstore,
-                    &exit,
-                    &repair_socket,
-                    cluster_info,
-                    repair_info,
-                    &cluster_slots,
-                    verified_vote_receiver,
-                    &outstanding_requests,
-                )
-            })
-            .unwrap();
+        let t_repair = {
+            let blockstore = blockstore.clone();
+            let exit = exit.clone();
+            let repair_info = repair_info.clone();
+            Builder::new()
+                .name("solana-repair-service".to_string())
+                .spawn(move || {
+                    Self::run(
+                        &blockstore,
+                        &exit,
+                        &repair_socket,
+                        repair_info,
+                        verified_vote_receiver,
+                        &outstanding_requests,
+                    )
+                })
+                .unwrap()
+        };
 
-        RepairService { t_repair }
+        let ancestor_hashes_request_socket = Arc::new(UdpSocket::bind("0.0.0.0:0").unwrap());
+        let ancestor_hashes_service = AncestorHashesService::new(
+            exit,
+            blockstore,
+            ancestor_hashes_request_socket,
+            repair_info,
+        );
+
+        RepairService {
+            t_repair,
+            ancestor_hashes_service,
+        }
     }
 
     fn run(
         blockstore: &Blockstore,
         exit: &AtomicBool,
         repair_socket: &UdpSocket,
-        cluster_info: Arc<ClusterInfo>,
         repair_info: RepairInfo,
-        cluster_slots: &ClusterSlots,
         verified_vote_receiver: VerifiedVoteReceiver,
         outstanding_requests: &RwLock<OutstandingShredRepairs>,
     ) {
         let mut repair_weight = RepairWeight::new(repair_info.bank_forks.read().unwrap().root());
-        let serve_repair = ServeRepair::new(cluster_info.clone());
-        let id = cluster_info.id();
+        let serve_repair = ServeRepair::new(repair_info.cluster_info.clone());
+        let id = repair_info.cluster_info.id();
         let mut repair_stats = RepairStats::default();
         let mut repair_timing = RepairTiming::default();
         let mut last_stats = Instant::now();
-        let duplicate_slot_repair_statuses: HashMap<Slot, DuplicateSlotRepairStatus> =
+        let mut duplicate_slot_repair_statuses: HashMap<Slot, DuplicateSlotRepairStatus> =
             HashMap::new();
         let mut peers_cache = LruCache::new(REPAIR_PEERS_CACHE_CAPACITY);
 
@@ -228,6 +253,25 @@ impl RepairService {
                 );
                 add_votes_elapsed.stop();
 
+                Self::process_new_duplicate_slot_repair_request_receiver_from_channel(
+                    &[],
+                    &mut duplicate_slot_repair_statuses,
+                    &repair_info.cluster_slots,
+                    &serve_repair,
+                    &repair_info.repair_validators,
+                );
+
+                Self::generate_and_send_duplicate_repairs(
+                    &mut duplicate_slot_repair_statuses,
+                    &repair_info.cluster_slots,
+                    blockstore,
+                    &serve_repair,
+                    &mut repair_stats,
+                    &repair_socket,
+                    &repair_info.repair_validators,
+                    &outstanding_requests,
+                );
+
                 repair_weight.get_best_weighted_repairs(
                     blockstore,
                     root_bank.epoch_stakes_map(),
@@ -243,7 +287,7 @@ impl RepairService {
             let mut outstanding_requests = outstanding_requests.write().unwrap();
             repairs.into_iter().for_each(|repair_request| {
                 if let Ok((to, req)) = serve_repair.repair_request(
-                    cluster_slots,
+                    &repair_info.cluster_slots,
                     repair_request,
                     &mut peers_cache,
                     &mut repair_stats,
@@ -389,12 +433,12 @@ impl RepairService {
         repairs: &mut Vec<ShredRepairType>,
         max_repairs: usize,
         slot: Slot,
-        ancestor_hashes_request_statuses: &impl Contains<'a, Slot>,
+        duplicate_slot_repair_statuses: &impl Contains<'a, Slot>,
     ) {
         let mut pending_slots = vec![slot];
         while repairs.len() < max_repairs && !pending_slots.is_empty() {
             let slot = pending_slots.pop().unwrap();
-            if ancestor_hashes_request_statuses.contains(&slot) {
+            if duplicate_slot_repair_statuses.contains(&slot) {
                 // These are repaired through a different path
                 continue;
             }
@@ -528,7 +572,29 @@ impl RepairService {
         }
     }
 
-    #[allow(dead_code)]
+    fn process_new_duplicate_slot_repair_request_receiver_from_channel(
+        new_duplicate_slots: &[(Slot, BankId)],
+        duplicate_slot_repair_statuses: &mut HashMap<Slot, DuplicateSlotRepairStatus>,
+        cluster_slots: &ClusterSlots,
+        serve_repair: &ServeRepair,
+        repair_validators: &Option<HashSet<Pubkey>>,
+    ) {
+        for (duplicate_slot, _) in new_duplicate_slots {
+            // TODO: When we get to the point where we ALSO support a specific version of
+            // a slot hash to repair, then it's of note that we could feasibly get the same
+            // duplicate slot, but a more specific hash to repair via this channel if the
+            // state of this slot were to go from EpochSlotsFrozen (Hash::default()) to
+            // DuplicateConfirmed (a specific hash) in ReplayStage.
+            Self::initiate_repair_for_duplicate_slot(
+                *duplicate_slot,
+                duplicate_slot_repair_statuses,
+                cluster_slots,
+                serve_repair,
+                repair_validators,
+            );
+        }
+    }
+
     fn initiate_repair_for_duplicate_slot(
         slot: Slot,
         duplicate_slot_repair_statuses: &mut HashMap<Slot, DuplicateSlotRepairStatus>,
@@ -554,7 +620,8 @@ impl RepairService {
     }
 
     pub fn join(self) -> thread::Result<()> {
-        self.t_repair.join()
+        self.t_repair.join()?;
+        self.ancestor_hashes_service.join()
     }
 }
 
@@ -864,7 +931,7 @@ mod test {
         let blockstore = Blockstore::open(&blockstore_path).unwrap();
         let cluster_slots = ClusterSlots::default();
         let serve_repair = ServeRepair::new_with_invalid_keypair(Node::new_localhost().info);
-        let mut ancestor_hashes_request_statuses = HashMap::new();
+        let mut duplicate_slot_repair_statuses = HashMap::new();
         let dead_slot = 9;
         let receive_socket = &UdpSocket::bind("0.0.0.0:0").unwrap();
         let duplicate_status = DuplicateSlotRepairStatus {
@@ -880,12 +947,12 @@ mod test {
             .insert_shreds(shreds[..shreds.len() - 1].to_vec(), None, false)
             .unwrap();
 
-        ancestor_hashes_request_statuses.insert(dead_slot, duplicate_status);
+        duplicate_slot_repair_statuses.insert(dead_slot, duplicate_status);
 
         // There is no repair_addr, so should not get filtered because the timeout
         // `std::u64::MAX` has not expired
         RepairService::generate_and_send_duplicate_repairs(
-            &mut ancestor_hashes_request_statuses,
+            &mut duplicate_slot_repair_statuses,
             &cluster_slots,
             &blockstore,
             &serve_repair,
@@ -894,23 +961,23 @@ mod test {
             &None,
             &RwLock::new(OutstandingRequests::default()),
         );
-        assert!(ancestor_hashes_request_statuses
+        assert!(duplicate_slot_repair_statuses
             .get(&dead_slot)
             .unwrap()
             .repair_pubkey_and_addr
             .is_none());
-        assert!(ancestor_hashes_request_statuses.get(&dead_slot).is_some());
+        assert!(duplicate_slot_repair_statuses.get(&dead_slot).is_some());
 
         // Give the slot a repair address
-        ancestor_hashes_request_statuses
+        duplicate_slot_repair_statuses
             .get_mut(&dead_slot)
             .unwrap()
             .repair_pubkey_and_addr =
             Some((Pubkey::default(), receive_socket.local_addr().unwrap()));
 
-        // Slot is not yet full, should not get filtered from `ancestor_hashes_request_statuses`
+        // Slot is not yet full, should not get filtered from `duplicate_slot_repair_statuses`
         RepairService::generate_and_send_duplicate_repairs(
-            &mut ancestor_hashes_request_statuses,
+            &mut duplicate_slot_repair_statuses,
             &cluster_slots,
             &blockstore,
             &serve_repair,
@@ -919,16 +986,16 @@ mod test {
             &None,
             &RwLock::new(OutstandingRequests::default()),
         );
-        assert_eq!(ancestor_hashes_request_statuses.len(), 1);
-        assert!(ancestor_hashes_request_statuses.get(&dead_slot).is_some());
+        assert_eq!(duplicate_slot_repair_statuses.len(), 1);
+        assert!(duplicate_slot_repair_statuses.get(&dead_slot).is_some());
 
         // Insert rest of shreds. Slot is full, should get filtered from
-        // `ancestor_hashes_request_statuses`
+        // `duplicate_slot_repair_statuses`
         blockstore
             .insert_shreds(vec![shreds.pop().unwrap()], None, false)
             .unwrap();
         RepairService::generate_and_send_duplicate_repairs(
-            &mut ancestor_hashes_request_statuses,
+            &mut duplicate_slot_repair_statuses,
             &cluster_slots,
             &blockstore,
             &serve_repair,
@@ -937,7 +1004,7 @@ mod test {
             &None,
             &RwLock::new(OutstandingRequests::default()),
         );
-        assert!(ancestor_hashes_request_statuses.is_empty());
+        assert!(duplicate_slot_repair_statuses.is_empty());
     }
 
     #[test]
