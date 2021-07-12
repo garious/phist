@@ -648,7 +648,7 @@ mod tests {
             ..ProcessOptions::default()
         };
         let (bank_forks, cached_leader_schedule) =
-            process_blockstore(&genesis_config, &blockstore, Vec::new(), opts, None).unwrap();
+            process_blockstore(&genesis_config, &blockstore, Vec::new(), opts, None, None).unwrap();
         let leader_schedule_cache = Arc::new(cached_leader_schedule);
         let bank_forks = Arc::new(RwLock::new(bank_forks));
 

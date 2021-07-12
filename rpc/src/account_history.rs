@@ -79,6 +79,7 @@ impl RpcAccountHistoryService {
         let mut w_account_history = account_history.write().unwrap();
         w_account_history.insert(frozen_bank.slot(), slot_accounts);
         measure_write.stop();
+        warn!("{:?}", w_account_history);
 
         let mut measure_prune = Measure::start("prune-account-history");
         Self::remove_old_slots(w_account_history, &config.num_slots);

@@ -36,7 +36,9 @@ use {
     solana_ledger::blockstore_db::BlockstoreRecoveryMode,
     solana_perf::recycler::enable_recycler_warming,
     solana_poh::poh_service,
-    solana_rpc::{rpc::JsonRpcConfig, rpc_pubsub_service::PubSubConfig},
+    solana_rpc::{
+        account_history::AccountHistoryConfig, rpc::JsonRpcConfig, rpc_pubsub_service::PubSubConfig,
+    },
     solana_runtime::{
         accounts_db::{
             AccountShrinkThreshold, DEFAULT_ACCOUNTS_SHRINK_OPTIMIZE_TOTAL_SPACE,
@@ -1241,6 +1243,20 @@ pub fn main() {
                         historical transaction info stored"),
         )
         .arg(
+            Arg::with_name("enable_rpc_account_history")
+                .long("enable-rpc-account-history")
+                .value_name("NUM_SLOTS")
+                .takes_value(true)
+                .validator(is_parsable::<usize>)
+                .help("Store per-slot account history in memory for retrieval over RPC"),
+        )
+        .arg(
+            Arg::with_name("rpc_account_history_updates_only")
+                .long("rpc-account-history-updates-only")
+                .takes_value(false)
+                .help("Only store account history for slots with updates")
+        )
+        .arg(
             Arg::with_name("rpc_max_multiple_accounts")
                 .long("rpc-max-multiple-accounts")
                 .value_name("MAX ACCOUNTS")
@@ -2295,6 +2311,12 @@ pub fn main() {
                 .map(Duration::from_secs),
             account_indexes: account_indexes.clone(),
             rpc_scan_and_fix_roots: matches.is_present("rpc_scan_and_fix_roots"),
+            enable_rpc_account_history: value_of(&matches, "enable_rpc_account_history").map(
+                |num_slots| AccountHistoryConfig {
+                    num_slots,
+                    updates_only: matches.is_present("rpc_account_history_updates_only"),
+                },
+            ),
         },
         rpc_addrs: value_t!(matches, "rpc_port", u16).ok().map(|rpc_port| {
             (
