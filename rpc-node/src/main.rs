@@ -1,5 +1,21 @@
 #![allow(clippy::integer_arithmetic)]
 use crossbeam_channel::unbounded;
+use solana_gossip::{
+    cluster_info::ClusterInfo,
+    contact_info::ContactInfo,
+};
+
+use solana_rpc::{
+    max_slots::MaxSlots,
+    rpc_subscriptions::RpcSubscriptions,
+    optimistically_confirmed_bank_tracker::{
+        OptimisticallyConfirmedBank,
+        OptimisticallyConfirmedBankTracker,
+    },
+    rpc_pubsub_service::PubSubService,
+    rpc_service::JsonRpcService,
+};
+
 use {
     bincode::deserialize,
     clap::{crate_description, crate_name, value_t, values_t, App, AppSettings, Arg},
@@ -7,15 +23,6 @@ use {
     solana_clap_utils::keypair::SKIP_SEED_PHRASE_VALIDATION_ARG,
     solana_core::{
         rpc_node_if::{RpcNodePacket},
-        cluster_info::ClusterInfo,
-        contact_info::ContactInfo,
-        max_slots::MaxSlots,
-        optimistically_confirmed_bank_tracker::{
-            OptimisticallyConfirmedBank, OptimisticallyConfirmedBankTracker,
-        },
-        rpc_pubsub_service::PubSubService,
-        rpc_service::JsonRpcService,
-        rpc_subscriptions::RpcSubscriptions,
         validator::ValidatorConfig,
     },
     solana_download_utils::download_snapshot,
@@ -94,16 +101,18 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
         (snapshot_slot, snapshot_hash),
         false,
         snapshot_config.maximum_snapshots_to_retain,
+        &mut None,
     )
     .unwrap();
 
-    let (_highest_snapshot_hash, (snapshot_slot, snapshot_hash, archive_format)) =
-        snapshot_utils::get_highest_snapshot_archive_path(snapshot_output_dir.clone()).unwrap();
+    let archive_info =
+        snapshot_utils::get_highest_snapshot_archive_info(snapshot_output_dir.clone()).unwrap();
     let snapshot_slot_hash = (snapshot_slot, snapshot_hash);
-    let archive_filename = snapshot_utils::get_snapshot_archive_path(
+    let archive_filename = snapshot_utils::build_snapshot_archive_path(
         snapshot_output_dir,
-        &snapshot_slot_hash,
-        archive_format,
+        snapshot_slot,
+        &snapshot_hash,
+        archive_info.archive_format,
     );
 
     let process_options = blockstore_processor::ProcessOptions {
@@ -112,19 +121,22 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
         ..blockstore_processor::ProcessOptions::default()
     };
 
-    let bank0 = snapshot_utils::bank_from_archive(
+    let (bank0, _) = snapshot_utils::bank_from_snapshot_archive(
         &account_paths,
         &[],
         &snapshot_config.snapshot_path,
         &archive_filename,
-        archive_format,
+        archive_info.archive_format,
         &genesis_config,
         process_options.debug_keys.clone(),
         None,
         process_options.account_indexes.clone(),
         process_options.accounts_db_caching_enabled,
+        process_options.limit_load_slot_count_from_snapshot,
+        process_options.shrink_ratio,
+        process_options.accounts_db_test_hash_calculation,
     )
-    .expect("Load from snapshot failed");
+    .unwrap();
 
     let bank0_slot = bank0.slot();
     let leader_schedule_cache = Arc::new(LeaderScheduleCache::new_from_bank(&bank0));
@@ -218,9 +230,16 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
                 let mut buffer = [0; 64 * 1024];
                 if let Ok(size_read) = stream.read(&mut buffer) {
                     info!("connection: {:?}", size_read);
-                    match deserialize(&buffer[..size_read]) {
-                        RpcNodePacket::AccountsUpdate(accounts_update) => {}
-                        RpcNodePacket::SlotUpdate(slot_update) => {}
+                    match deserialize::<RpcNodePacket>(&buffer[..size_read]) {
+                        Ok(result) => {
+                            match result {
+                                RpcNodePacket::AccountsUpdate(accounts_update) => {},
+                                RpcNodePacket::SlotUpdate(slot_update) => {}
+                            }
+                        },
+                        Err(err) => {
+                            info!("Ran into error while receiving response from the server: {:?}", err);
+                        }
                     }
                 }
             },
@@ -326,11 +345,15 @@ pub fn main() {
     });
 
     let config = RpcNodeConfig {
-        snapshot_output_dir,
-        snapshot_hash,
-        snapshot_slot,
+        rpc_source_addr,
+        rpc_addr,
+        rpc_pubsub_addr,
         ledger_path,
+        snapshot_output_dir,
+        snapshot_path,
         account_paths,
+        snapshot_slot,
+        snapshot_hash,
     };
     run_rpc_node(config);
 }

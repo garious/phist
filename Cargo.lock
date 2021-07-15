@@ -833,16 +833,6 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-channel"
-version = "0.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b153fe7cbef478c567df0f972e02e6d736db11affe43dfc9c56a9374d1adfb87"
-dependencies = [
- "crossbeam-utils 0.7.2",
- "maybe-uninit",
-]
-
-[[package]]
-name = "crossbeam-channel"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06ed27e177f16d65f0f0c22a213e17c696ace5dd64b14258b52f9417ccb52db4"
@@ -3559,7 +3549,7 @@ version = "1.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d78120e2c850279833f1dd3582f730c4ab53ed95aeaaaa862a2a5c71b1656d8e"
 dependencies = [
- "crossbeam-channel 0.5.1",
+ "crossbeam-channel",
  "crossbeam-deque 0.8.0",
  "crossbeam-utils 0.8.1",
  "lazy_static",
@@ -4224,7 +4214,7 @@ name = "solana-accounts-bench"
 version = "1.8.0"
 dependencies = [
  "clap 2.33.3",
- "crossbeam-channel 0.5.1",
+ "crossbeam-channel",
  "log 0.4.14",
  "rand 0.7.3",
  "rayon",
@@ -4265,7 +4255,7 @@ name = "solana-banking-bench"
 version = "1.8.0"
 dependencies = [
  "clap 2.33.3",
- "crossbeam-channel 0.5.1",
+ "crossbeam-channel",
  "log 0.4.14",
  "rand 0.7.3",
  "rayon",
@@ -4579,7 +4569,7 @@ dependencies = [
  "bv",
  "byteorder",
  "chrono",
- "crossbeam-channel 0.5.1",
+ "crossbeam-channel",
  "ed25519-dalek",
  "flate2",
  "fs_extra",
@@ -4945,7 +4935,7 @@ dependencies = [
  "byteorder",
  "chrono",
  "chrono-humanize",
- "crossbeam-channel 0.5.1",
+ "crossbeam-channel",
  "ed25519-dalek",
  "fs_extra",
  "futures 0.3.15",
@@ -5032,7 +5022,7 @@ name = "solana-local-cluster"
 version = "1.8.0"
 dependencies = [
  "assert_matches",
- "crossbeam-channel 0.5.1",
+ "crossbeam-channel",
  "fs_extra",
  "gag",
  "itertools 0.10.1",
@@ -5224,7 +5214,7 @@ version = "1.8.0"
 dependencies = [
  "bincode",
  "core_affinity",
- "crossbeam-channel 0.5.1",
+ "crossbeam-channel",
  "log 0.4.14",
  "matches",
  "rand 0.7.3",
@@ -5387,7 +5377,7 @@ dependencies = [
  "base64 0.12.3",
  "bincode",
  "bs58 0.4.0",
- "crossbeam-channel 0.5.1",
+ "crossbeam-channel",
  "itertools 0.10.1",
  "jsonrpc-core",
  "jsonrpc-core-client",
@@ -5436,7 +5426,7 @@ dependencies = [
  "chrono",
  "clap 2.33.3",
  "console 0.11.3",
- "crossbeam-channel 0.4.4",
+ "crossbeam-channel",
  "jsonrpc-core",
  "jsonrpc-core-client",
  "jsonrpc-derive",
@@ -5451,10 +5441,12 @@ dependencies = [
  "solana-core",
  "solana-download-utils",
  "solana-genesis-utils",
+ "solana-gossip",
  "solana-ledger",
  "solana-logger 1.8.0",
  "solana-metrics",
  "solana-net-utils",
+ "solana-rpc",
  "solana-runtime",
  "solana-sdk",
  "solana-version",
@@ -5471,7 +5463,7 @@ dependencies = [
  "bv",
  "byteorder",
  "bzip2",
- "crossbeam-channel 0.5.1",
+ "crossbeam-channel",
  "dashmap",
  "dir-diff",
  "flate2",
