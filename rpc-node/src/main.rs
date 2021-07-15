@@ -32,10 +32,11 @@ use {
         leader_schedule_cache::LeaderScheduleCache,
     },
     solana_runtime::{
-        bank_forks::{BankForks, SnapshotConfig},
+        bank_forks::BankForks,
         commitment::BlockCommitmentCache,
         hardened_unpack::MAX_GENESIS_ARCHIVE_UNPACKED_SIZE,
-        snapshot_utils,
+        snapshot_config::SnapshotConfig,
+        snapshot_utils::{self, ArchiveFormat},
     },
     solana_sdk::{clock::Slot, hash::Hash},
     std::{
@@ -90,9 +91,11 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
 
     let snapshot_config = SnapshotConfig {
         snapshot_interval_slots: std::u64::MAX,
-        snapshot_path,
         snapshot_package_output_path: snapshot_output_dir.clone(),
-        ..SnapshotConfig::default()
+        snapshot_path,
+        archive_format: ArchiveFormat::TarBzip2,
+        snapshot_version: snapshot_utils::SnapshotVersion::default(),
+        maximum_snapshots_to_retain: snapshot_utils::DEFAULT_MAX_SNAPSHOTS_TO_RETAIN,
     };
 
     download_snapshot(
@@ -107,7 +110,6 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
 
     let archive_info =
         snapshot_utils::get_highest_snapshot_archive_info(snapshot_output_dir.clone()).unwrap();
-    let snapshot_slot_hash = (snapshot_slot, snapshot_hash);
     let archive_filename = snapshot_utils::build_snapshot_archive_path(
         snapshot_output_dir,
         snapshot_slot,
@@ -233,8 +235,12 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
                     match deserialize::<RpcNodePacket>(&buffer[..size_read]) {
                         Ok(result) => {
                             match result {
-                                RpcNodePacket::AccountsUpdate(accounts_update) => {},
-                                RpcNodePacket::SlotUpdate(slot_update) => {}
+                                RpcNodePacket::AccountsUpdate(accounts_update) => {
+                                    info!("Received AccountsUpdate : {:?}", accounts_update);
+                                },
+                                RpcNodePacket::SlotUpdate(slot_update) => {
+                                    info!("Received SlotUpdate : {:?}", slot_update);
+                                }
                             }
                         },
                         Err(err) => {
