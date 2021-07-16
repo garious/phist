@@ -1,19 +1,15 @@
 #![allow(clippy::integer_arithmetic)]
 use crossbeam_channel::unbounded;
-use solana_gossip::{
-    cluster_info::ClusterInfo,
-    contact_info::ContactInfo,
-};
+use solana_gossip::{cluster_info::ClusterInfo, contact_info::ContactInfo};
 
 use solana_rpc::{
     max_slots::MaxSlots,
-    rpc_subscriptions::RpcSubscriptions,
     optimistically_confirmed_bank_tracker::{
-        OptimisticallyConfirmedBank,
-        OptimisticallyConfirmedBankTracker,
+        OptimisticallyConfirmedBank, OptimisticallyConfirmedBankTracker,
     },
     rpc_pubsub_service::PubSubService,
     rpc_service::JsonRpcService,
+    rpc_subscriptions::RpcSubscriptions,
 };
 
 use {
@@ -21,10 +17,7 @@ use {
     clap::{crate_description, crate_name, value_t, values_t, App, AppSettings, Arg},
     log::*,
     solana_clap_utils::keypair::SKIP_SEED_PHRASE_VALIDATION_ARG,
-    solana_core::{
-        rpc_node_if::{RpcNodePacket},
-        validator::ValidatorConfig,
-    },
+    solana_core::{rpc_node_if::RpcNodePacket, validator::ValidatorConfig},
     solana_download_utils::download_snapshot,
     solana_genesis_utils::download_then_check_genesis_hash,
     solana_ledger::{
@@ -86,8 +79,10 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
     )
     .unwrap();
 
-    let mut config = ValidatorConfig::default();
-    config.rpc_addrs = Some((rpc_addr, rpc_pubsub_addr));
+    let config = ValidatorConfig {
+        rpc_addrs: Some((rpc_addr, rpc_pubsub_addr)),
+        ..Default::default()
+    };
 
     let snapshot_config = SnapshotConfig {
         snapshot_interval_slots: std::u64::MAX,
@@ -190,24 +185,24 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
                 config.rpc_config.clone(),
                 config.snapshot_config.clone(),
                 bank_forks.clone(),
-                block_commitment_cache.clone(),
-                blockstore.clone(),
-                cluster_info.clone(),
+                block_commitment_cache,
+                blockstore,
+                cluster_info,
                 None,
                 genesis_config.hash(),
                 &ledger_path,
                 config.validator_exit.clone(),
                 config.trusted_validators.clone(),
-                rpc_override_health_check.clone(),
+                rpc_override_health_check,
                 optimistically_confirmed_bank.clone(),
                 config.send_transaction_retry_ms,
                 config.send_transaction_leader_forward_count,
-                max_slots.clone(),
-                leader_schedule_cache.clone(),
+                max_slots,
+                leader_schedule_cache,
                 max_complete_transaction_status_slot,
             )),
             Some(PubSubService::new(
-                config.pubsub_config.clone(),
+                config.pubsub_config,
                 &subscriptions,
                 rpc_pubsub_addr,
                 &exit,
@@ -215,7 +210,7 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
             Some(OptimisticallyConfirmedBankTracker::new(
                 bank_notification_receiver,
                 &exit,
-                bank_forks.clone(),
+                bank_forks,
                 optimistically_confirmed_bank,
                 subscriptions.clone(),
             )),
@@ -233,18 +228,19 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
                 if let Ok(size_read) = stream.read(&mut buffer) {
                     info!("connection: {:?}", size_read);
                     match deserialize::<RpcNodePacket>(&buffer[..size_read]) {
-                        Ok(result) => {
-                            match result {
-                                RpcNodePacket::AccountsUpdate(accounts_update) => {
-                                    info!("Received AccountsUpdate : {:?}", accounts_update);
-                                },
-                                RpcNodePacket::SlotUpdate(slot_update) => {
-                                    info!("Received SlotUpdate : {:?}", slot_update);
-                                }
+                        Ok(result) => match result {
+                            RpcNodePacket::AccountsUpdate(accounts_update) => {
+                                info!("Received AccountsUpdate : {:?}", accounts_update);
+                            }
+                            RpcNodePacket::SlotUpdate(slot_update) => {
+                                info!("Received SlotUpdate : {:?}", slot_update);
                             }
                         },
                         Err(err) => {
-                            info!("Ran into error while receiving response from the server: {:?}", err);
+                            info!(
+                                "Ran into error while receiving response from the server: {:?}",
+                                err
+                            );
                         }
                     }
                 }
@@ -254,10 +250,15 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
             }
         }
     }
-    info!("Validator exiting..");
+    info!("Replica exiting..");
     exit.store(true, Ordering::Relaxed);
-    json_rpc_service.map(|t| t.join().unwrap());
-    pubsub_service.map(|t| t.join().unwrap());
+    if let Some(json_rpc_service) = json_rpc_service {
+        json_rpc_service.join().expect("rpc_service");
+    }
+
+    if let Some(pubsub_service) = pubsub_service {
+        pubsub_service.join().expect("pubsub_service");
+    }
 }
 
 pub fn main() {
