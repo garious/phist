@@ -491,12 +491,12 @@ pub fn main() {
                 .help("Use DIR as ledger location"),
         )
         .arg(
-            Arg::with_name("target_validator")
-                .long("target-validator")
+            Arg::with_name("peer")
+                .long("peer")
                 .value_name("IP:PORT")
                 .takes_value(true)
                 .required(true)
-                .help("RPC to download from"),
+                .help("The the IP:PORT for the peer validator/replica to download from"),
         )
         .arg(
             Arg::with_name("peer_pubkey")
@@ -680,9 +680,9 @@ pub fn main() {
         };
 
     let rpc_source_addr = solana_net_utils::parse_host_port(
-        matches.value_of("rpc_source").unwrap_or_else(|| {
+        matches.value_of("peer").unwrap_or_else(|| {
             clap::Error::with_description(
-                "The --rpc-source <HOST:PORT> argument is required",
+                "The --peer <IP:PORT> argument is required",
                 clap::ErrorKind::ArgumentNotFound,
             )
             .exit();
