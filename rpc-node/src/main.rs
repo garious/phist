@@ -1,6 +1,10 @@
 #![allow(clippy::integer_arithmetic)]
 use crossbeam_channel::unbounded;
-use solana_gossip::{cluster_info::ClusterInfo, contact_info::ContactInfo};
+use solana_gossip::{
+    cluster_info::{ClusterInfo, Node, VALIDATOR_PORT_RANGE},
+    contact_info::ContactInfo,
+    gossip_service::GossipService,
+};
 
 use solana_rpc::{
     max_slots::MaxSlots,
@@ -16,7 +20,12 @@ use {
     bincode::deserialize,
     clap::{crate_description, crate_name, value_t, values_t, App, AppSettings, Arg},
     log::*,
-    solana_clap_utils::keypair::SKIP_SEED_PHRASE_VALIDATION_ARG,
+    rand::{seq::SliceRandom, thread_rng, Rng},
+    solana_clap_utils::{
+        input_parsers::keypair_of,
+        input_validators::{is_keypair_or_ask_keyword, is_parsable, is_pubkey},
+        keypair::SKIP_SEED_PHRASE_VALIDATION_ARG,
+    },
     solana_core::{rpc_node_if::RpcNodePacket, validator::ValidatorConfig},
     solana_download_utils::download_snapshot,
     solana_genesis_utils::download_then_check_genesis_hash,
@@ -31,17 +40,26 @@ use {
         snapshot_config::SnapshotConfig,
         snapshot_utils::{self, ArchiveFormat},
     },
-    solana_sdk::{clock::Slot, hash::Hash},
+    solana_sdk::{
+        clock::Slot,
+        hash::Hash,
+        pubkey::Pubkey,
+        signature::{Keypair, Signer},
+    },
+    solana_validator::port_range_validator,
     std::{
+        collections::HashSet,
         env,
         io::Read,
-        net::{SocketAddr, TcpListener},
-        path::PathBuf,
+        net::{IpAddr, SocketAddr, TcpListener, UdpSocket},
+        path::{Path, PathBuf},
         process::exit,
         sync::{
             atomic::{AtomicBool, AtomicU64, Ordering},
             Arc, RwLock,
         },
+        thread::sleep,
+        time::{Duration, Instant},
     },
 };
 
@@ -53,8 +71,39 @@ struct RpcNodeConfig {
     snapshot_output_dir: PathBuf,
     snapshot_path: PathBuf,
     account_paths: Vec<PathBuf>,
-    snapshot_slot: Slot,
-    snapshot_hash: Hash,
+    snapshot_info: (Slot, Hash),
+}
+
+fn start_gossip_node(
+    identity_keypair: Arc<Keypair>,
+    cluster_entrypoints: &[ContactInfo],
+    ledger_path: &Path,
+    gossip_addr: &SocketAddr,
+    gossip_socket: UdpSocket,
+    expected_shred_version: Option<u16>,
+    gossip_validators: Option<HashSet<Pubkey>>,
+    should_check_duplicate_instance: bool,
+) -> (Arc<ClusterInfo>, Arc<AtomicBool>, GossipService) {
+    let contact_info = ClusterInfo::gossip_contact_info(
+        identity_keypair.pubkey(),
+        *gossip_addr,
+        expected_shred_version.unwrap_or(0),
+    );
+    let mut cluster_info = ClusterInfo::new(contact_info, identity_keypair);
+    cluster_info.set_entrypoints(cluster_entrypoints.to_vec());
+    cluster_info.restore_contact_info(ledger_path, 0);
+    let cluster_info = Arc::new(cluster_info);
+
+    let gossip_exit_flag = Arc::new(AtomicBool::new(false));
+    let gossip_service = GossipService::new(
+        &cluster_info,
+        None,
+        gossip_socket,
+        gossip_validators,
+        should_check_duplicate_instance,
+        &gossip_exit_flag,
+    );
+    (cluster_info, gossip_exit_flag, gossip_service)
 }
 
 fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
@@ -64,10 +113,9 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
         rpc_pubsub_addr,
         ledger_path,
         snapshot_output_dir,
-        snapshot_hash,
         snapshot_path,
         account_paths,
-        snapshot_slot,
+        snapshot_info,
     } = rpc_node_config;
     let genesis_config = download_then_check_genesis_hash(
         &rpc_source_addr,
@@ -96,7 +144,7 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
     download_snapshot(
         &rpc_source_addr,
         &snapshot_output_dir,
-        (snapshot_slot, snapshot_hash),
+        snapshot_info,
         false,
         snapshot_config.maximum_snapshots_to_retain,
         &mut None,
@@ -107,8 +155,8 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
         snapshot_utils::get_highest_snapshot_archive_info(snapshot_output_dir.clone()).unwrap();
     let archive_filename = snapshot_utils::build_snapshot_archive_path(
         snapshot_output_dir,
-        snapshot_slot,
-        &snapshot_hash,
+        snapshot_info.0,
+        &snapshot_info.1,
         archive_info.archive_format,
     );
 
@@ -262,7 +310,166 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
     }
 }
 
+fn get_cluster_shred_version(entrypoints: &[SocketAddr]) -> Option<u16> {
+    let entrypoints = {
+        let mut index: Vec<_> = (0..entrypoints.len()).collect();
+        index.shuffle(&mut rand::thread_rng());
+        index.into_iter().map(|i| &entrypoints[i])
+    };
+    for entrypoint in entrypoints {
+        match solana_net_utils::get_cluster_shred_version(entrypoint) {
+            Err(err) => eprintln!("get_cluster_shred_version failed: {}, {}", entrypoint, err),
+            Ok(0) => eprintln!("zero sherd-version from entrypoint: {}", entrypoint),
+            Ok(shred_version) => {
+                info!(
+                    "obtained shred-version {} from {}",
+                    shred_version, entrypoint
+                );
+                return Some(shred_version);
+            }
+        }
+    }
+    None
+}
+
+fn get_rpc_peer_node(
+    cluster_info: &ClusterInfo,
+    cluster_entrypoints: &[ContactInfo],
+    expected_shred_version: Option<u16>,
+    peer_pubkey: &Pubkey,
+    snapshot_output_dir: &Path,
+) -> Option<(ContactInfo, Option<(Slot, Hash)>)> {
+    let mut newer_cluster_snapshot_timeout = None;
+    let mut retry_reason = None;
+    loop {
+        sleep(Duration::from_secs(1));
+        info!("\n{}", cluster_info.rpc_info_trace());
+
+        let shred_version =
+            expected_shred_version.unwrap_or_else(|| cluster_info.my_shred_version());
+        if shred_version == 0 {
+            let all_zero_shred_versions = cluster_entrypoints.iter().all(|cluster_entrypoint| {
+                cluster_info
+                    .lookup_contact_info_by_gossip_addr(&cluster_entrypoint.gossip)
+                    .map_or(false, |entrypoint| entrypoint.shred_version == 0)
+            });
+
+            if all_zero_shred_versions {
+                eprintln!(
+                    "Entrypoint shred version is zero.  Restart with --expected-shred-version"
+                );
+                exit(1);
+            }
+            info!("Waiting to adopt entrypoint shred version...");
+            continue;
+        }
+
+        info!(
+            "Searching for an RPC service with shred version {}{}...",
+            shred_version,
+            retry_reason
+                .as_ref()
+                .map(|s| format!(" (Retrying: {})", s))
+                .unwrap_or_default()
+        );
+
+        let rpc_peers = cluster_info
+            .all_rpc_peers()
+            .into_iter()
+            .filter(|contact_info| contact_info.shred_version == shred_version)
+            .collect::<Vec<_>>();
+        let rpc_peers_total = rpc_peers.len();
+
+        let rpc_peers_trusted = rpc_peers
+            .iter()
+            .filter(|rpc_peer| &rpc_peer.id == peer_pubkey)
+            .count();
+
+        info!(
+            "Total {} RPC nodes found. {} trusted",
+            rpc_peers_total, rpc_peers_trusted
+        );
+
+        let mut highest_snapshot_hash: Option<(Slot, Hash)> =
+            snapshot_utils::get_highest_snapshot_archive_info(snapshot_output_dir).map(
+                |snapshot_archive_info| (snapshot_archive_info.slot, snapshot_archive_info.hash),
+            );
+        let eligible_rpc_peers = {
+            let mut eligible_rpc_peers = vec![];
+
+            for rpc_peer in rpc_peers.iter() {
+                cluster_info.get_snapshot_hash_for_node(&rpc_peer.id, |snapshot_hashes| {
+                    for snapshot_hash in snapshot_hashes {
+                        if highest_snapshot_hash.is_none()
+                            || snapshot_hash.0 > highest_snapshot_hash.unwrap().0
+                        {
+                            // Found a higher snapshot, remove all nodes with a lower snapshot
+                            eligible_rpc_peers.clear();
+                            highest_snapshot_hash = Some(*snapshot_hash)
+                        }
+
+                        if Some(*snapshot_hash) == highest_snapshot_hash {
+                            eligible_rpc_peers.push(rpc_peer.clone());
+                        }
+                    }
+                });
+            }
+
+            match highest_snapshot_hash {
+                None => {
+                    assert!(eligible_rpc_peers.is_empty());
+                }
+                Some(highest_snapshot_hash) => {
+                    if eligible_rpc_peers.is_empty() {
+                        match newer_cluster_snapshot_timeout {
+                            None => newer_cluster_snapshot_timeout = Some(Instant::now()),
+                            Some(newer_cluster_snapshot_timeout) => {
+                                if newer_cluster_snapshot_timeout.elapsed().as_secs() > 180 {
+                                    warn!("giving up newer snapshot from the cluster");
+                                    return None;
+                                }
+                            }
+                        }
+                        retry_reason = Some(format!(
+                            "Wait for newer snapshot than local: {:?}",
+                            highest_snapshot_hash
+                        ));
+                        continue;
+                    }
+
+                    info!(
+                        "Highest available snapshot slot is {}, available from {} node{}: {:?}",
+                        highest_snapshot_hash.0,
+                        eligible_rpc_peers.len(),
+                        if eligible_rpc_peers.len() > 1 {
+                            "s"
+                        } else {
+                            ""
+                        },
+                        eligible_rpc_peers
+                            .iter()
+                            .map(|contact_info| contact_info.id)
+                            .collect::<Vec<_>>()
+                    );
+                }
+            }
+            eligible_rpc_peers
+        };
+
+        if !eligible_rpc_peers.is_empty() {
+            let contact_info =
+                &eligible_rpc_peers[thread_rng().gen_range(0, eligible_rpc_peers.len())];
+            return Some((contact_info.clone(), highest_snapshot_hash));
+        } else {
+            retry_reason = Some("No snapshots available".to_owned());
+        }
+    }
+}
+
 pub fn main() {
+    let default_dynamic_port_range =
+        &format!("{}-{}", VALIDATOR_PORT_RANGE.0, VALIDATOR_PORT_RANGE.1);
+
     let matches = App::new(crate_name!())
         .about(crate_description!())
         .version(solana_version::version!())
@@ -292,12 +499,13 @@ pub fn main() {
                 .help("RPC to download from"),
         )
         .arg(
-            Arg::with_name("snapshot_hash")
-                .long("snapshot-hash")
-                .value_name("HASH")
+            Arg::with_name("peer_pubkey")
+                .long("peer-pubkey")
+                .validator(is_pubkey)
+                .value_name("The peer validator/replica IDENTITY")
+                .multiple(true)
                 .takes_value(true)
-                .required(true)
-                .help("Snapshot hash to download"),
+                .help("The pubkey for the target validator."),
         )
         .arg(
             Arg::with_name("account_paths")
@@ -307,10 +515,151 @@ pub fn main() {
                 .multiple(true)
                 .help("Comma separated persistent accounts location"),
         )
+        .arg(
+            Arg::with_name("identity")
+                .short("i")
+                .long("identity")
+                .value_name("KEYPAIR")
+                .takes_value(true)
+                .validator(is_keypair_or_ask_keyword)
+                .help("Replica identity keypair"),
+        )
+        .arg(
+            Arg::with_name("entrypoint")
+                .short("n")
+                .long("entrypoint")
+                .value_name("HOST:PORT")
+                .takes_value(true)
+                .multiple(true)
+                .validator(solana_net_utils::is_host_port)
+                .help("Rendezvous with the cluster at this gossip entrypoint"),
+        )
+        .arg(
+            Arg::with_name("bind_address")
+                .long("bind-address")
+                .value_name("HOST")
+                .takes_value(true)
+                .validator(solana_net_utils::is_host)
+                .default_value("0.0.0.0")
+                .help("IP address to bind the replica ports"),
+        )
+        .arg(
+            Arg::with_name("dynamic_port_range")
+                .long("dynamic-port-range")
+                .value_name("MIN_PORT-MAX_PORT")
+                .takes_value(true)
+                .default_value(default_dynamic_port_range)
+                .validator(port_range_validator)
+                .help("Range to use for dynamically assigned ports"),
+        )
+        .arg(
+            Arg::with_name("expected_shred_version")
+                .long("expected-shred-version")
+                .value_name("VERSION")
+                .takes_value(true)
+                .validator(is_parsable::<u16>)
+                .help("Require the shred version be this value"),
+        )
         .get_matches();
 
-    let snapshot_hash = value_t!(matches, "snapshot_hash", Hash).unwrap();
-    let snapshot_slot = value_t!(matches, "snapshot_slot", u64).unwrap();
+    let bind_address = solana_net_utils::parse_host(matches.value_of("bind_address").unwrap())
+        .expect("invalid bind_address");
+
+    let identity_keypair = keypair_of(&matches, "identity").unwrap_or_else(|| {
+        clap::Error::with_description(
+            "The --identity <KEYPAIR> argument is required",
+            clap::ErrorKind::ArgumentNotFound,
+        )
+        .exit();
+    });
+
+    let peer_pubkey = value_t!(matches, "peer_pubkey", Pubkey).unwrap();
+
+    let entrypoint_addrs = values_t!(matches, "entrypoint", String)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|entrypoint| {
+            solana_net_utils::parse_host_port(&entrypoint).unwrap_or_else(|e| {
+                eprintln!("failed to parse entrypoint address: {}", e);
+                exit(1);
+            })
+        })
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+
+    let expected_shred_version = value_t!(matches, "expected_shred_version", u16)
+        .ok()
+        .or_else(|| get_cluster_shred_version(&entrypoint_addrs));
+
+    let gossip_host: IpAddr = matches
+        .value_of("gossip_host")
+        .map(|gossip_host| {
+            solana_net_utils::parse_host(gossip_host).unwrap_or_else(|err| {
+                eprintln!("Failed to parse --gossip-host: {}", err);
+                exit(1);
+            })
+        })
+        .unwrap_or_else(|| {
+            if !entrypoint_addrs.is_empty() {
+                let mut order: Vec<_> = (0..entrypoint_addrs.len()).collect();
+                order.shuffle(&mut thread_rng());
+
+                let gossip_host = order.into_iter().find_map(|i| {
+                    let entrypoint_addr = &entrypoint_addrs[i];
+                    info!(
+                        "Contacting {} to determine the validator's public IP address",
+                        entrypoint_addr
+                    );
+                    solana_net_utils::get_public_ip_addr(entrypoint_addr).map_or_else(
+                        |err| {
+                            eprintln!(
+                                "Failed to contact cluster entrypoint {}: {}",
+                                entrypoint_addr, err
+                            );
+                            None
+                        },
+                        Some,
+                    )
+                });
+
+                gossip_host.unwrap_or_else(|| {
+                    eprintln!("Unable to determine the validator's public IP address");
+                    exit(1);
+                })
+            } else {
+                std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1))
+            }
+        });
+
+    let gossip_addr = SocketAddr::new(
+        gossip_host,
+        value_t!(matches, "gossip_port", u16).unwrap_or_else(|_| {
+            solana_net_utils::find_available_port_in_range(bind_address, (0, 1)).unwrap_or_else(
+                |err| {
+                    eprintln!("Unable to find an available gossip port: {}", err);
+                    exit(1);
+                },
+            )
+        }),
+    );
+
+    let dynamic_port_range =
+        solana_net_utils::parse_port_range(matches.value_of("dynamic_port_range").unwrap())
+            .expect("invalid dynamic_port_range");
+
+    let cluster_entrypoints = entrypoint_addrs
+        .iter()
+        .map(ContactInfo::new_gossip_entry_point)
+        .collect::<Vec<_>>();
+
+    let node = Node::new_with_external_ip(
+        &identity_keypair.pubkey(),
+        &gossip_addr,
+        dynamic_port_range,
+        bind_address,
+    );
+
     let ledger_path = PathBuf::from(matches.value_of("ledger_path").unwrap());
     let snapshot_output_dir = if matches.is_present("snapshots") {
         PathBuf::from(matches.value_of("snapshots").unwrap())
@@ -352,6 +701,34 @@ pub fn main() {
         exit(1);
     });
 
+    let identity_keypair = Arc::new(identity_keypair);
+
+    let gossip = Some(start_gossip_node(
+        identity_keypair.clone(),
+        &cluster_entrypoints,
+        &ledger_path,
+        &node.info.gossip,
+        node.sockets.gossip.try_clone().unwrap(),
+        expected_shred_version,
+        None,
+        true,
+    ));
+
+    let rpc_node_details = get_rpc_peer_node(
+        &gossip.as_ref().unwrap().0,
+        &cluster_entrypoints,
+        expected_shred_version,
+        &peer_pubkey,
+        &snapshot_output_dir,
+    );
+
+    let (rpc_contact_info, snapshot_info) = rpc_node_details.unwrap();
+
+    info!(
+        "Using RPC service from node {}: {:?}",
+        rpc_contact_info.id, rpc_contact_info.rpc
+    );
+
     let config = RpcNodeConfig {
         rpc_source_addr,
         rpc_addr,
@@ -360,8 +737,7 @@ pub fn main() {
         snapshot_output_dir,
         snapshot_path,
         account_paths,
-        snapshot_slot,
-        snapshot_hash,
+        snapshot_info: snapshot_info.unwrap(),
     };
     run_rpc_node(config);
 }
