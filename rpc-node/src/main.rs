@@ -17,7 +17,6 @@ use solana_rpc::{
 };
 
 use {
-    bincode::deserialize,
     clap::{crate_description, crate_name, value_t, values_t, App, AppSettings, Arg},
     log::*,
     rand::{seq::SliceRandom, thread_rng, Rng},
@@ -26,7 +25,7 @@ use {
         input_validators::{is_keypair_or_ask_keyword, is_parsable, is_pubkey},
         keypair::SKIP_SEED_PHRASE_VALIDATION_ARG,
     },
-    solana_core::{rpc_node_if::RpcNodePacket, validator::ValidatorConfig},
+    solana_core::{validator::ValidatorConfig},
     solana_download_utils::download_snapshot,
     solana_genesis_utils::download_then_check_genesis_hash,
     solana_ledger::{
@@ -49,10 +48,8 @@ use {
     solana_validator::port_range_validator,
     std::{
         collections::HashSet,
-        env,
-        fs,
-        io::Read,
-        net::{IpAddr, SocketAddr, TcpListener, UdpSocket},
+        env, fs,
+        net::{IpAddr, SocketAddr, UdpSocket},
         path::{Path, PathBuf},
         process::exit,
         sync::{
@@ -143,7 +140,10 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
         maximum_snapshots_to_retain: snapshot_utils::DEFAULT_MAX_SNAPSHOTS_TO_RETAIN,
     };
 
-    info!("Downloading snapshot from the peer into {:?}", snapshot_output_dir);
+    info!(
+        "Downloading snapshot from the peer into {:?}",
+        snapshot_output_dir
+    );
 
     download_snapshot(
         &rpc_source_addr,
@@ -155,8 +155,7 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
     )
     .unwrap();
 
-    fs::create_dir_all(&snapshot_config.snapshot_path)
-        .expect("Couldn't create snapshot directory");
+    fs::create_dir_all(&snapshot_config.snapshot_path).expect("Couldn't create snapshot directory");
 
     let archive_info =
         snapshot_utils::get_highest_snapshot_archive_info(snapshot_output_dir.clone()).unwrap();
@@ -173,7 +172,10 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
         ..blockstore_processor::ProcessOptions::default()
     };
 
-    info!("Build bank from snapshot archive: {:?}", &snapshot_config.snapshot_path);
+    info!(
+        "Build bank from snapshot archive: {:?}",
+        &snapshot_config.snapshot_path
+    );
     let (bank0, _) = snapshot_utils::bank_from_snapshot_archive(
         &account_paths,
         &[],
@@ -379,7 +381,7 @@ fn get_rpc_peer_node(
             for rpc_peer in rpc_peers.iter() {
                 if &rpc_peer.id != peer_pubkey {
                     continue;
-                } 
+                }
                 cluster_info.get_snapshot_hash_for_node(&rpc_peer.id, |snapshot_hashes| {
                     for snapshot_hash in snapshot_hashes {
                         if highest_snapshot_hash.is_none()
@@ -564,9 +566,11 @@ pub fn main() {
                 .long("log")
                 .value_name("FILE")
                 .takes_value(true)
-                .help("Redirect logging to the specified file, '-' for standard error. \
+                .help(
+                    "Redirect logging to the specified file, '-' for standard error. \
                        Sending the SIGUSR1 signal to the validator process will cause it \
-                       to re-open the log file"),
+                       to re-open the log file",
+                ),
         )
         .get_matches();
 
@@ -694,34 +698,32 @@ pub fn main() {
             vec![ledger_path.join("accounts")]
         };
 
-    let rpc_source_addr = solana_net_utils::parse_host_port(
-        matches.value_of("peer").unwrap_or_else(|| {
+    let rpc_source_addr =
+        solana_net_utils::parse_host_port(matches.value_of("peer").unwrap_or_else(|| {
             clap::Error::with_description(
                 "The --peer <IP:PORT> argument is required",
                 clap::ErrorKind::ArgumentNotFound,
             )
             .exit();
-        }),
-    )
-    .unwrap_or_else(|e| {
-        eprintln!("failed to parse entrypoint address: {}", e);
-        exit(1);
-    });
+        }))
+        .unwrap_or_else(|e| {
+            eprintln!("failed to parse entrypoint address: {}", e);
+            exit(1);
+        });
 
     let rpc_port = value_t!(matches, "rpc_port", u16).unwrap_or_else(|_| {
-            clap::Error::with_description(
-                "The --rpc-port <PORT> argument is required",
-                clap::ErrorKind::ArgumentNotFound,
-            )
-            .exit();
+        clap::Error::with_description(
+            "The --rpc-port <PORT> argument is required",
+            clap::ErrorKind::ArgumentNotFound,
+        )
+        .exit();
     });
-    let rpc_addrs =
-    (
-                SocketAddr::new(rpc_bind_address, rpc_port),
-                SocketAddr::new(rpc_bind_address, rpc_port + 1),
-                // If additional ports are added, +2 needs to be skipped to avoid a conflict with
-                // the websocket port (which is +2) in web3.js This odd port shifting is tracked at
-                // https://github.com/solana-labs/solana/issues/12250
+    let rpc_addrs = (
+        SocketAddr::new(rpc_bind_address, rpc_port),
+        SocketAddr::new(rpc_bind_address, rpc_port + 1),
+        // If additional ports are added, +2 needs to be skipped to avoid a conflict with
+        // the websocket port (which is +2) in web3.js This odd port shifting is tracked at
+        // https://github.com/solana-labs/solana/issues/12250
     );
 
     let logfile = {
@@ -743,7 +745,7 @@ pub fn main() {
     let identity_keypair = Arc::new(identity_keypair);
 
     let gossip = Some(start_gossip_node(
-        identity_keypair.clone(),
+        identity_keypair,
         &cluster_entrypoints,
         &ledger_path,
         &node.info.gossip,
