@@ -343,6 +343,7 @@ fn get_rpc_peer_node(
     let mut retry_reason = None;
     loop {
         sleep(Duration::from_secs(1));
+        info!("Searching for the rpc peer node and latest snapshot information.");
         info!("\n{}", cluster_info.rpc_info_trace());
 
         let shred_version =
@@ -544,6 +545,22 @@ pub fn main() {
                 .help("IP address to bind the replica ports"),
         )
         .arg(
+            Arg::with_name("rpc_bind_address")
+                .long("rpc-bind-address")
+                .value_name("HOST")
+                .takes_value(true)
+                .validator(solana_net_utils::is_host)
+                .help("IP address to bind the Json RPC port [default: use --bind-address]"),
+        )
+        .arg(
+            Arg::with_name("rpc_port")
+                .long("rpc-port")
+                .value_name("PORT")
+                .takes_value(true)
+                .validator(solana_validator::port_validator)
+                .help("Enable JSON RPC on this port, and the next port for the RPC websocket"),
+        )
+        .arg(
             Arg::with_name("dynamic_port_range")
                 .long("dynamic-port-range")
                 .value_name("MIN_PORT-MAX_PORT")
@@ -560,10 +577,27 @@ pub fn main() {
                 .validator(is_parsable::<u16>)
                 .help("Require the shred version be this value"),
         )
+        .arg(
+            Arg::with_name("logfile")
+                .short("o")
+                .long("log")
+                .value_name("FILE")
+                .takes_value(true)
+                .help("Redirect logging to the specified file, '-' for standard error. \
+                       Sending the SIGUSR1 signal to the validator process will cause it \
+                       to re-open the log file"),
+        )
         .get_matches();
 
     let bind_address = solana_net_utils::parse_host(matches.value_of("bind_address").unwrap())
         .expect("invalid bind_address");
+
+    let rpc_bind_address = if matches.is_present("rpc_bind_address") {
+        solana_net_utils::parse_host(matches.value_of("rpc_bind_address").unwrap())
+            .expect("invalid rpc_bind_address")
+    } else {
+        bind_address
+    };
 
     let identity_keypair = keypair_of(&matches, "identity").unwrap_or_else(|| {
         clap::Error::with_description(
@@ -693,19 +727,21 @@ pub fn main() {
         exit(1);
     });
 
-    let rpc_addr = solana_net_utils::parse_host_port(matches.value_of("rpc_port").unwrap())
-        .unwrap_or_else(|e| {
-            eprintln!("failed to parse entrypoint address: {}", e);
-            exit(1);
-        });
-
-    let rpc_pubsub_addr = solana_net_utils::parse_host_port(
-        matches.value_of("rpc_pubsub").unwrap(),
-    )
-    .unwrap_or_else(|e| {
-        eprintln!("failed to parse entrypoint address: {}", e);
-        exit(1);
+    let rpc_port = value_t!(matches, "rpc_port", u16).unwrap_or_else(|_| {
+            clap::Error::with_description(
+                "The --rpc-port <PORT> argument is required",
+                clap::ErrorKind::ArgumentNotFound,
+            )
+            .exit();
     });
+    let rpc_addrs =
+    (
+                SocketAddr::new(rpc_bind_address, rpc_port),
+                SocketAddr::new(rpc_bind_address, rpc_port + 1),
+                // If additional ports are added, +2 needs to be skipped to avoid a conflict with
+                // the websocket port (which is +2) in web3.js This odd port shifting is tracked at
+                // https://github.com/solana-labs/solana/issues/12250
+    );
 
     let identity_keypair = Arc::new(identity_keypair);
 
@@ -737,14 +773,31 @@ pub fn main() {
 
     let config = RpcNodeConfig {
         rpc_source_addr,
-        rpc_addr,
-        rpc_pubsub_addr,
+        rpc_addr: rpc_addrs.0,
+        rpc_pubsub_addr: rpc_addrs.1,
         ledger_path,
         snapshot_output_dir,
         snapshot_path,
         account_paths,
         snapshot_info: snapshot_info.unwrap(),
     };
+
+    let logfile = {
+        let logfile = matches
+            .value_of("logfile")
+            .map(|s| s.into())
+            .unwrap_or_else(|| format!("solana-rpc-node-{}.log", identity_keypair.pubkey()));
+
+        if logfile == "-" {
+            None
+        } else {
+            println!("log file: {}", logfile);
+            Some(logfile)
+        }
+    };
+
+    let _logger_thread = solana_validator::redirect_stderr_to_file(logfile);
+
     run_rpc_node(config);
 }
 
