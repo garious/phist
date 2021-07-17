@@ -50,6 +50,7 @@ use {
     std::{
         collections::HashSet,
         env,
+        fs,
         io::Read,
         net::{IpAddr, SocketAddr, TcpListener, UdpSocket},
         path::{Path, PathBuf},
@@ -103,6 +104,7 @@ fn start_gossip_node(
         should_check_duplicate_instance,
         &gossip_exit_flag,
     );
+    info!("Started gossip node");
     (cluster_info, gossip_exit_flag, gossip_service)
 }
 
@@ -150,6 +152,9 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
         &mut None,
     )
     .unwrap();
+
+    fs::create_dir_all(&snapshot_config.snapshot_path)
+        .expect("Couldn't create snapshot directory");
 
     let archive_info =
         snapshot_utils::get_highest_snapshot_archive_info(snapshot_output_dir.clone()).unwrap();
@@ -342,6 +347,7 @@ fn get_rpc_peer_node(
     let mut newer_cluster_snapshot_timeout = None;
     let mut retry_reason = None;
     loop {
+        info!("get_rpc_peer_node called");
         sleep(Duration::from_secs(1));
         info!("Searching for the rpc peer node and latest snapshot information.");
         info!("\n{}", cluster_info.rpc_info_trace());
@@ -743,6 +749,22 @@ pub fn main() {
                 // https://github.com/solana-labs/solana/issues/12250
     );
 
+    let logfile = {
+        let logfile = matches
+            .value_of("logfile")
+            .map(|s| s.into())
+            .unwrap_or_else(|| format!("solana-rpc-node-{}.log", identity_keypair.pubkey()));
+
+        if logfile == "-" {
+            None
+        } else {
+            println!("log file: {}", logfile);
+            Some(logfile)
+        }
+    };
+
+    let _logger_thread = solana_validator::redirect_stderr_to_file(logfile);
+
     let identity_keypair = Arc::new(identity_keypair);
 
     let gossip = Some(start_gossip_node(
@@ -781,22 +803,6 @@ pub fn main() {
         account_paths,
         snapshot_info: snapshot_info.unwrap(),
     };
-
-    let logfile = {
-        let logfile = matches
-            .value_of("logfile")
-            .map(|s| s.into())
-            .unwrap_or_else(|| format!("solana-rpc-node-{}.log", identity_keypair.pubkey()));
-
-        if logfile == "-" {
-            None
-        } else {
-            println!("log file: {}", logfile);
-            Some(logfile)
-        }
-    };
-
-    let _logger_thread = solana_validator::redirect_stderr_to_file(logfile);
 
     run_rpc_node(config);
 }
