@@ -277,36 +277,6 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
         (None, None, None, None)
     };
 
-    let listener = TcpListener::bind("127.0.0.1:80").unwrap();
-    for stream in listener.incoming() {
-        match stream {
-            Ok(mut stream) => loop {
-                let mut buffer = [0; 64 * 1024];
-                if let Ok(size_read) = stream.read(&mut buffer) {
-                    info!("connection: {:?}", size_read);
-                    match deserialize::<RpcNodePacket>(&buffer[..size_read]) {
-                        Ok(result) => match result {
-                            RpcNodePacket::AccountsUpdate(accounts_update) => {
-                                info!("Received AccountsUpdate : {:?}", accounts_update);
-                            }
-                            RpcNodePacket::SlotUpdate(slot_update) => {
-                                info!("Received SlotUpdate : {:?}", slot_update);
-                            }
-                        },
-                        Err(err) => {
-                            info!(
-                                "Ran into error while receiving response from the server: {:?}",
-                                err
-                            );
-                        }
-                    }
-                }
-            },
-            Err(e) => {
-                info!("tcp connection failed {:?}", e);
-            }
-        }
-    }
     info!("Replica exiting..");
     exit.store(true, Ordering::Relaxed);
     if let Some(json_rpc_service) = json_rpc_service {
