@@ -143,6 +143,8 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
         maximum_snapshots_to_retain: snapshot_utils::DEFAULT_MAX_SNAPSHOTS_TO_RETAIN,
     };
 
+    info!("Downloading snapshot from the peer into {:?}", snapshot_output_dir);
+
     download_snapshot(
         &rpc_source_addr,
         &snapshot_output_dir,
@@ -171,6 +173,7 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
         ..blockstore_processor::ProcessOptions::default()
     };
 
+    info!("Build bank from snapshot archive: {:?}", &snapshot_config.snapshot_path);
     let (bank0, _) = snapshot_utils::bank_from_snapshot_archive(
         &account_paths,
         &[],
@@ -347,7 +350,6 @@ fn get_rpc_peer_node(
     let mut newer_cluster_snapshot_timeout = None;
     let mut retry_reason = None;
     loop {
-        info!("get_rpc_peer_node called");
         sleep(Duration::from_secs(1));
         info!("Searching for the rpc peer node and latest snapshot information.");
         info!("\n{}", cluster_info.rpc_info_trace());
@@ -405,6 +407,9 @@ fn get_rpc_peer_node(
             let mut eligible_rpc_peers = vec![];
 
             for rpc_peer in rpc_peers.iter() {
+                if &rpc_peer.id != peer_pubkey {
+                    continue;
+                } 
                 cluster_info.get_snapshot_hash_for_node(&rpc_peer.id, |snapshot_hashes| {
                     for snapshot_hash in snapshot_hashes {
                         if highest_snapshot_hash.is_none()
@@ -789,8 +794,8 @@ pub fn main() {
     let (rpc_contact_info, snapshot_info) = rpc_node_details.unwrap();
 
     info!(
-        "Using RPC service from node {}: {:?}",
-        rpc_contact_info.id, rpc_contact_info.rpc
+        "Using RPC service from node {}: {:?}, snapshot_info: {:?}",
+        rpc_contact_info.id, rpc_contact_info.rpc, snapshot_info
     );
 
     let config = RpcNodeConfig {
