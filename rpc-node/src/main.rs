@@ -680,7 +680,13 @@ pub fn main() {
         };
 
     let rpc_source_addr = solana_net_utils::parse_host_port(
-        matches.value_of("rpc_source").unwrap(),
+        matches.value_of("rpc_source").unwrap_or_else(|| {
+            clap::Error::with_description(
+                "The --rpc-source <HOST:PORT> argument is required",
+                clap::ErrorKind::ArgumentNotFound,
+            )
+            .exit();
+        }),
     )
     .unwrap_or_else(|e| {
         eprintln!("failed to parse entrypoint address: {}", e);
