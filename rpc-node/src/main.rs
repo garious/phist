@@ -450,6 +450,39 @@ fn get_rpc_peer_node(
     }
 }
 
+fn get_snapshot_rpc_info(
+    identity_keypair: Keypair,
+    cluster_entrypoints: &[ContactInfo],
+    ledger_path: &Path,
+    node: &Node,
+    expected_shred_version: Option<u16>,
+    peer_pubkey: &Pubkey,
+    snapshot_output_dir: &Path
+) -> Option<(ContactInfo, Option<(Slot, Hash)>)> {
+    let identity_keypair = Arc::new(identity_keypair);
+
+    let gossip = Some(start_gossip_node(
+        identity_keypair,
+        &cluster_entrypoints,
+        &ledger_path,
+        &node.info.gossip,
+        node.sockets.gossip.try_clone().unwrap(),
+        expected_shred_version,
+        None,
+        true,
+    ));
+
+    let rpc_node_details = get_rpc_peer_node(
+        &gossip.as_ref().unwrap().0,
+        &cluster_entrypoints,
+        expected_shred_version,
+        &peer_pubkey,
+        &snapshot_output_dir,
+    );
+
+    rpc_node_details
+}
+
 pub fn main() {
     let default_dynamic_port_range =
         &format!("{}-{}", VALIDATOR_PORT_RANGE.0, VALIDATOR_PORT_RANGE.1);
@@ -742,22 +775,11 @@ pub fn main() {
 
     let _logger_thread = solana_validator::redirect_stderr_to_file(logfile);
 
-    let identity_keypair = Arc::new(identity_keypair);
-
-    let gossip = Some(start_gossip_node(
+    let rpc_node_details = get_snapshot_rpc_info(
         identity_keypair,
         &cluster_entrypoints,
         &ledger_path,
-        &node.info.gossip,
-        node.sockets.gossip.try_clone().unwrap(),
-        expected_shred_version,
-        None,
-        true,
-    ));
-
-    let rpc_node_details = get_rpc_peer_node(
-        &gossip.as_ref().unwrap().0,
-        &cluster_entrypoints,
+        &node,
         expected_shred_version,
         &peer_pubkey,
         &snapshot_output_dir,
