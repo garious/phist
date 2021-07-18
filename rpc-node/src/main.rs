@@ -1,3 +1,6 @@
+//! The main AccountsDb replication rpc-node responsible for replicating
+//! AccountsDb information from peer validator or another rpc-node.
+
 #![allow(clippy::integer_arithmetic)]
 use crossbeam_channel::unbounded;
 use solana_gossip::{
@@ -25,7 +28,7 @@ use {
         input_validators::{is_keypair_or_ask_keyword, is_parsable, is_pubkey},
         keypair::SKIP_SEED_PHRASE_VALIDATION_ARG,
     },
-    solana_core::{validator::ValidatorConfig},
+    solana_core::validator::ValidatorConfig,
     solana_download_utils::download_snapshot,
     solana_genesis_utils::download_then_check_genesis_hash,
     solana_ledger::{
@@ -41,6 +44,7 @@ use {
     },
     solana_sdk::{
         clock::Slot,
+        genesis_config::GenesisConfig,
         hash::Hash,
         pubkey::Pubkey,
         signature::{Keypair, Signer},
@@ -70,6 +74,7 @@ struct RpcNodeConfig {
     snapshot_path: PathBuf,
     account_paths: Vec<PathBuf>,
     snapshot_info: (Slot, Hash),
+    cluster_info: Arc<ClusterInfo>,
 }
 
 fn start_gossip_node(
@@ -105,41 +110,26 @@ fn start_gossip_node(
     (cluster_info, gossip_exit_flag, gossip_service)
 }
 
-fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
-    let RpcNodeConfig {
-        rpc_source_addr,
-        rpc_addr,
-        rpc_pubsub_addr,
-        ledger_path,
-        snapshot_output_dir,
-        snapshot_path,
-        account_paths,
-        snapshot_info,
-    } = rpc_node_config;
-    let genesis_config = download_then_check_genesis_hash(
-        &rpc_source_addr,
-        &ledger_path,
-        None,
-        MAX_GENESIS_ARCHIVE_UNPACKED_SIZE,
-        false,
-        true,
-    )
-    .unwrap();
+// Struct maintaining information about banks
+struct ReplicaBankInfo {
+    bank_forks: Arc<RwLock<BankForks>>,
+    optimistically_confirmed_bank: Arc<RwLock<OptimisticallyConfirmedBank>>,
+    leader_schedule_cache: Arc<LeaderScheduleCache>,
+    block_commitment_cache: Arc<RwLock<BlockCommitmentCache>>,
+}
 
-    let config = ValidatorConfig {
-        rpc_addrs: Some((rpc_addr, rpc_pubsub_addr)),
-        ..Default::default()
-    };
-
-    let snapshot_config = SnapshotConfig {
-        snapshot_interval_slots: std::u64::MAX,
-        snapshot_package_output_path: snapshot_output_dir.clone(),
-        snapshot_path,
-        archive_format: ArchiveFormat::TarBzip2,
-        snapshot_version: snapshot_utils::SnapshotVersion::default(),
-        maximum_snapshots_to_retain: snapshot_utils::DEFAULT_MAX_SNAPSHOTS_TO_RETAIN,
-    };
-
+// Initialize the replica by downloading snapshot from the peer, initialize
+// the BankForks, OptimisticallyConfirmedBank, LeaderScheduleCache and
+// BlockCommitmentCache and return the info wrapped as ReplicaBankInfo.
+fn initialize_from_snapshot(
+    snapshot_output_dir: &Path,
+    rpc_source_addr: &SocketAddr,
+    snapshot_info: (Slot, Hash),
+    snapshot_config: &SnapshotConfig,
+    config: &ValidatorConfig,
+    genesis_config: &GenesisConfig,
+    account_paths: &[PathBuf],
+) -> ReplicaBankInfo {
     info!(
         "Downloading snapshot from the peer into {:?}",
         snapshot_output_dir
@@ -147,7 +137,7 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
 
     download_snapshot(
         &rpc_source_addr,
-        &snapshot_output_dir,
+        snapshot_output_dir,
         snapshot_info,
         false,
         snapshot_config.maximum_snapshots_to_retain,
@@ -158,9 +148,10 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
     fs::create_dir_all(&snapshot_config.snapshot_path).expect("Couldn't create snapshot directory");
 
     let archive_info =
-        snapshot_utils::get_highest_snapshot_archive_info(snapshot_output_dir.clone()).unwrap();
+        snapshot_utils::get_highest_snapshot_archive_info(snapshot_output_dir.to_path_buf())
+            .unwrap();
     let archive_filename = snapshot_utils::build_snapshot_archive_path(
-        snapshot_output_dir,
+        snapshot_output_dir.to_path_buf(),
         snapshot_info.0,
         &snapshot_info.1,
         archive_info.archive_format,
@@ -202,17 +193,38 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
     let optimistically_confirmed_bank =
         OptimisticallyConfirmedBank::locked_from_bank_forks_root(&bank_forks);
 
+    let mut block_commitment_cache = BlockCommitmentCache::default();
+    block_commitment_cache.initialize_slots(bank0_slot);
+    let block_commitment_cache = Arc::new(RwLock::new(block_commitment_cache));
+
+    ReplicaBankInfo {
+        bank_forks,
+        optimistically_confirmed_bank,
+        leader_schedule_cache,
+        block_commitment_cache,
+    }
+}
+
+fn start_client_rpc_services(
+    ledger_path: &Path,
+    config: &ValidatorConfig,
+    genesis_config: &GenesisConfig,
+    cluster_info: Arc<ClusterInfo>,
+    bank_info: &ReplicaBankInfo,
+) {
+    let ReplicaBankInfo {
+        bank_forks,
+        optimistically_confirmed_bank,
+        leader_schedule_cache,
+        block_commitment_cache,
+    } = bank_info;
+
     let blockstore = Arc::new(
         Blockstore::open_with_access_type(&ledger_path, AccessType::PrimaryOnly, None, false)
             .unwrap(),
     );
 
-    let mut block_commitment_cache = BlockCommitmentCache::default();
-    block_commitment_cache.initialize_slots(bank0_slot);
-    let block_commitment_cache = Arc::new(RwLock::new(block_commitment_cache));
     let max_complete_transaction_status_slot = Arc::new(AtomicU64::new(0));
-
-    let cluster_info = Arc::new(ClusterInfo::default());
 
     let max_slots = Arc::new(MaxSlots::default());
     let exit = Arc::new(AtomicBool::new(false));
@@ -244,7 +256,7 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
                 config.rpc_config.clone(),
                 config.snapshot_config.clone(),
                 bank_forks.clone(),
-                block_commitment_cache,
+                block_commitment_cache.clone(),
                 blockstore,
                 cluster_info,
                 None,
@@ -257,11 +269,11 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
                 config.send_transaction_retry_ms,
                 config.send_transaction_leader_forward_count,
                 max_slots,
-                leader_schedule_cache,
+                leader_schedule_cache.clone(),
                 max_complete_transaction_status_slot,
             )),
             Some(PubSubService::new(
-                config.pubsub_config,
+                config.pubsub_config.clone(),
                 &subscriptions,
                 rpc_pubsub_addr,
                 &exit,
@@ -269,8 +281,8 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
             Some(OptimisticallyConfirmedBankTracker::new(
                 bank_notification_receiver,
                 &exit,
-                bank_forks,
-                optimistically_confirmed_bank,
+                bank_forks.clone(),
+                optimistically_confirmed_bank.clone(),
                 subscriptions.clone(),
             )),
             Some(bank_notification_sender),
@@ -279,7 +291,6 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
         (None, None, None, None)
     };
 
-    info!("Replica exiting..");
     exit.store(true, Ordering::Relaxed);
     if let Some(json_rpc_service) = json_rpc_service {
         json_rpc_service.join().expect("rpc_service");
@@ -288,6 +299,65 @@ fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
     if let Some(pubsub_service) = pubsub_service {
         pubsub_service.join().expect("pubsub_service");
     }
+}
+
+// Run the replica RPC node.
+fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
+    let RpcNodeConfig {
+        rpc_source_addr,
+        rpc_addr,
+        rpc_pubsub_addr,
+        ledger_path,
+        snapshot_output_dir,
+        snapshot_path,
+        account_paths,
+        snapshot_info,
+        cluster_info,
+    } = rpc_node_config;
+
+    let genesis_config = download_then_check_genesis_hash(
+        &rpc_source_addr,
+        &ledger_path,
+        None,
+        MAX_GENESIS_ARCHIVE_UNPACKED_SIZE,
+        false,
+        true,
+    )
+    .unwrap();
+
+    let config = ValidatorConfig {
+        rpc_addrs: Some((rpc_addr, rpc_pubsub_addr)),
+        ..Default::default()
+    };
+
+    let snapshot_config = SnapshotConfig {
+        snapshot_interval_slots: std::u64::MAX,
+        snapshot_package_output_path: snapshot_output_dir.clone(),
+        snapshot_path,
+        archive_format: ArchiveFormat::TarBzip2,
+        snapshot_version: snapshot_utils::SnapshotVersion::default(),
+        maximum_snapshots_to_retain: snapshot_utils::DEFAULT_MAX_SNAPSHOTS_TO_RETAIN,
+    };
+
+    let bank_info = initialize_from_snapshot(
+        &snapshot_output_dir,
+        &rpc_source_addr,
+        snapshot_info,
+        &snapshot_config,
+        &config,
+        &genesis_config,
+        &account_paths,
+    );
+
+    start_client_rpc_services(
+        &ledger_path,
+        &config,
+        &genesis_config,
+        cluster_info,
+        &bank_info,
+    );
+
+    info!("Replica exiting..");
 }
 
 fn get_cluster_shred_version(entrypoints: &[SocketAddr]) -> Option<u16> {
@@ -312,6 +382,9 @@ fn get_cluster_shred_version(entrypoints: &[SocketAddr]) -> Option<u16> {
     None
 }
 
+// Discover the RPC peer node via Gossip and return's ContactInfo
+// And the initial snapshot info: (Slot, Hash)
+// TBD, this can be solved via a RPC call instead of using gossip.
 fn get_rpc_peer_node(
     cluster_info: &ClusterInfo,
     cluster_entrypoints: &[ContactInfo],
@@ -450,15 +523,17 @@ fn get_rpc_peer_node(
     }
 }
 
-fn get_snapshot_rpc_info(
+// Get the RPC peer info given the peer's Pubkey
+// Returns the ClusterInfo, the peer's ContactInfo and the initial snapshot info
+fn get_rpc_peer_info(
     identity_keypair: Keypair,
     cluster_entrypoints: &[ContactInfo],
     ledger_path: &Path,
     node: &Node,
     expected_shred_version: Option<u16>,
     peer_pubkey: &Pubkey,
-    snapshot_output_dir: &Path
-) -> Option<(ContactInfo, Option<(Slot, Hash)>)> {
+    snapshot_output_dir: &Path,
+) -> (Arc<ClusterInfo>, ContactInfo, Option<(Slot, Hash)>) {
     let identity_keypair = Arc::new(identity_keypair);
 
     let gossip = Some(start_gossip_node(
@@ -479,8 +554,13 @@ fn get_snapshot_rpc_info(
         &peer_pubkey,
         &snapshot_output_dir,
     );
+    let rpc_node_details = rpc_node_details.unwrap();
 
-    rpc_node_details
+    (
+        gossip.as_ref().unwrap().0.clone(),
+        rpc_node_details.0,
+        rpc_node_details.1,
+    )
 }
 
 pub fn main() {
@@ -775,7 +855,7 @@ pub fn main() {
 
     let _logger_thread = solana_validator::redirect_stderr_to_file(logfile);
 
-    let rpc_node_details = get_snapshot_rpc_info(
+    let (cluster_info, rpc_contact_info, snapshot_info) = get_rpc_peer_info(
         identity_keypair,
         &cluster_entrypoints,
         &ledger_path,
@@ -784,8 +864,6 @@ pub fn main() {
         &peer_pubkey,
         &snapshot_output_dir,
     );
-
-    let (rpc_contact_info, snapshot_info) = rpc_node_details.unwrap();
 
     info!(
         "Using RPC service from node {}: {:?}, snapshot_info: {:?}",
@@ -801,6 +879,7 @@ pub fn main() {
         snapshot_path,
         account_paths,
         snapshot_info: snapshot_info.unwrap(),
+        cluster_info,
     };
 
     run_rpc_node(config);
