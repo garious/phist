@@ -49,7 +49,6 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-#[derive(Debug)]
 pub struct ClusterConfig {
     /// The validator config that should be applied to every node in the cluster
     pub validator_configs: Vec<ValidatorConfig>,

@@ -11,7 +11,8 @@ use crate::{
     cluster_slots_service::ClusterSlotsUpdateSender,
     commitment_service::{AggregateCommitmentService, CommitmentAggregationData},
     consensus::{
-        ComputedBankState, Stake, SwitchForkDecision, Tower, VotedStakes, SWITCH_FORK_THRESHOLD,
+        ComputedBankState, Stake, SwitchForkDecision, Tower, TowerStorage, VotedStakes,
+        SWITCH_FORK_THRESHOLD,
     },
     fork_choice::{ForkChoice, SelectVoteAndResetForkResult},
     heaviest_subtree_fork_choice::HeaviestSubtreeForkChoice,
@@ -126,6 +127,7 @@ pub struct ReplayStageConfig {
     pub cache_block_meta_sender: Option<CacheBlockMetaSender>,
     pub bank_notification_sender: Option<BankNotificationSender>,
     pub wait_for_vote_to_start_leader: bool,
+    pub tower_storage: Arc<dyn TowerStorage>,
 }
 
 #[derive(Default)]
@@ -333,6 +335,7 @@ impl ReplayStage {
             cache_block_meta_sender,
             bank_notification_sender,
             wait_for_vote_to_start_leader,
+            tower_storage,
         } = config;
 
         trace!("replay stage");
@@ -587,6 +590,7 @@ impl ReplayStage {
                             switch_fork_decision,
                             &bank_forks,
                             &mut tower,
+                            tower_storage.as_ref(),
                             &mut progress,
                             &vote_account,
                             &identity_keypair,
@@ -642,7 +646,7 @@ impl ReplayStage {
                                 my_pubkey = identity_keypair.pubkey();
 
                                 // Load the new identity's tower
-                                tower = Tower::restore(&tower.ledger_path, &my_pubkey)
+                                tower = Tower::restore(tower_storage.as_ref(), &my_pubkey)
                                     .and_then(|restored_tower| {
                                         let root_bank = bank_forks.read().unwrap().root_bank();
                                         let slot_history = root_bank.get_slot_history();
@@ -1470,6 +1474,7 @@ impl ReplayStage {
         switch_fork_decision: &SwitchForkDecision,
         bank_forks: &Arc<RwLock<BankForks>>,
         tower: &mut Tower,
+        tower_storage: &dyn TowerStorage,
         progress: &mut ProgressMap,
         vote_account_pubkey: &Pubkey,
         identity_keypair: &Keypair,
@@ -1497,9 +1502,14 @@ impl ReplayStage {
         trace!("handle votable bank {}", bank.slot());
         let new_root = tower.record_bank_vote(bank, vote_account_pubkey);
 
-        if let Err(err) = tower.save(identity_keypair) {
-            error!("Unable to save tower: {:?}", err);
-            std::process::exit(1);
+        {
+            let mut measure = Measure::start("tower_save-ms");
+            if let Err(err) = tower.save(tower_storage, identity_keypair) {
+                error!("Unable to save tower: {:?}", err);
+                std::process::exit(1);
+            }
+            measure.stop();
+            inc_new_counter_info!("tower_save-ms", measure.as_ms() as usize);
         }
 
         if let Some(new_root) = new_root {
@@ -2860,7 +2870,6 @@ pub mod tests {
         let my_vote_pubkey = my_keypairs.vote_keypair.pubkey();
         let tower = Tower::new_from_bankforks(
             &bank_forks.read().unwrap(),
-            blockstore.ledger_path(),
             &cluster_info.id(),
             &my_vote_pubkey,
         );
