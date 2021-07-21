@@ -418,7 +418,7 @@ impl AncestorHashesService {
                     // ancestors
                     for slot in repairable_dead_slots {
                         warn!(
-                            "Cluster froze slot: {}, but we marked it as dead. 
+                            "Cluster froze slot: {}, but we marked it as dead.
                             Initiating protocol to sample cluster for dead slot ancestors.",
                             slot
                         );
