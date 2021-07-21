@@ -4,6 +4,8 @@ use crate::{
 };
 use bincode::deserialize;
 use bv::BitVec;
+#[allow(deprecated)]
+use solana_sdk::sysvar::recent_blockhashes::RecentBlockhashes;
 use solana_sdk::{
     clock::{Clock, Epoch, Slot, UnixTimestamp},
     epoch_schedule::EpochSchedule,
@@ -12,10 +14,11 @@ use solana_sdk::{
     slot_hashes::SlotHashes,
     slot_history::{self, SlotHistory},
     stake_history::{StakeHistory, StakeHistoryEntry},
-    sysvar::{self, fees::Fees, recent_blockhashes::RecentBlockhashes, rewards::Rewards},
+    sysvar::{self, fees::Fees, rewards::Rewards},
 };
 
 pub fn parse_sysvar(data: &[u8], pubkey: &Pubkey) -> Result<SysvarAccountType, ParseAccountError> {
+    #[allow(deprecated)]
     let parsed_account = {
         if pubkey == &sysvar::clock::id() {
             deserialize::<Clock>(data)
@@ -213,10 +216,9 @@ pub struct UiStakeHistoryEntry {
 #[cfg(test)]
 mod test {
     use super::*;
-    use solana_sdk::{
-        account::create_account_for_test, fee_calculator::FeeCalculator, hash::Hash,
-        sysvar::recent_blockhashes::IterItem,
-    };
+    #[allow(deprecated)]
+    use solana_sdk::sysvar::recent_blockhashes::IterItem;
+    use solana_sdk::{account::create_account_for_test, fee_calculator::FeeCalculator, hash::Hash};
 
     #[test]
     fn test_parse_sysvars() {
@@ -249,6 +251,7 @@ mod test {
         let fee_calculator = FeeCalculator {
             lamports_per_signature: 10,
         };
+        #[allow(deprecated)]
         let recent_blockhashes: RecentBlockhashes = vec![IterItem(0, &hash, &fee_calculator)]
             .into_iter()
             .collect();

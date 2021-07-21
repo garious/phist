@@ -13,6 +13,7 @@ pub mod slot_hashes;
 pub mod slot_history;
 pub mod stake_history;
 
+#[allow(deprecated)]
 pub fn is_sysvar_id(id: &Pubkey) -> bool {
     clock::check_id(id)
         || epoch_schedule::check_id(id)

@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 #![allow(clippy::integer_arithmetic)]
 use crate::{
     declare_sysvar_id,
@@ -7,20 +8,31 @@ use crate::{
 };
 use std::{cmp::Ordering, collections::BinaryHeap, iter::FromIterator, ops::Deref};
 
+#[deprecated(
+    since = "1.8.0",
+    note = "Please do not use, will no longer be available in the future"
+)]
 pub const MAX_ENTRIES: usize = 150;
 
+#[deprecated(
+    since = "1.8.0",
+    note = "Please do not use, will no longer be available in the future"
+)]
 declare_sysvar_id!(
     "SysvarRecentB1ockHashes11111111111111111111",
     RecentBlockhashes
 );
 
+#[deprecated(
+    since = "1.8.0",
+    note = "Please do not use, will no longer be available in the future"
+)]
 #[repr(C)]
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct Entry {
     pub blockhash: Hash,
     pub fee_calculator: FeeCalculator,
 }
-
 impl Entry {
     pub fn new(blockhash: &Hash, fee_calculator: &FeeCalculator) -> Self {
         Self {
@@ -30,6 +42,10 @@ impl Entry {
     }
 }
 
+#[deprecated(
+    since = "1.8.0",
+    note = "Please do not use, will no longer be available in the future"
+)]
 #[derive(Clone, Debug)]
 pub struct IterItem<'a>(pub u64, pub &'a Hash, pub &'a FeeCalculator);
 
@@ -57,6 +73,10 @@ impl<'a> PartialOrd for IterItem<'a> {
 ///
 /// The entries are ordered by descending block height, so the first entry holds
 /// the most recent block hash, and the last entry holds an old block hash.
+#[deprecated(
+    since = "1.8.0",
+    note = "Please do not use, will no longer be available in the future"
+)]
 #[repr(C)]
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct RecentBlockhashes(Vec<Entry>);
