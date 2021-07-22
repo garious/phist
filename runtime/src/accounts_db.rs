@@ -1983,7 +1983,7 @@ impl AccountsDb {
             Measure::start("filter purges w.r.t. snapshots");
         if let Some(last_full_snapshot_slot) = last_full_snapshot_slot {
             if max_clean_root.unwrap_or(Slot::MAX) > last_full_snapshot_slot {
-                purges_zero_lamports.retain(|pubkey, (slot_account_infos, _ref_count)| {
+                purges_zero_lamports.retain(|_pubkey, (slot_account_infos, _ref_count)| {
                     let slot_account_info_at_highest_slot = slot_account_infos
                         .iter()
                         .max_by_key(|(slot, _account_info)| slot);

@@ -2753,17 +2753,14 @@ mod tests {
     /// slot 2:
     ///     - make Account1 have zero lamports (send back to Account2)
     ///     - take an incremental snapshot
-    ///     - ensure deserializing from these snapshots is equal to this bank
+    ///     - ensure deserializing from this snapshot is equal to this bank
     /// slot 3:
     ///     - remove Account2's reference back to slot 2 by transfering from the mint to Account2
     /// slot 4:
     ///     - ensure `clean_accounts()` has run and that Account1 is gone
     ///     - take another incremental snapshot
-    ///     - ensure deserializing from this snapshots is equal to this slot
+    ///     - ensure deserializing from this snapshots is equal to this bank
     ///     - ensure Account1 hasn't come back from the dead
-    /// slot 5:
-    ///     - take another full snapshot
-    ///     - call `clean_accounts()` again and ensure Account1 has been purged from AccountsDb
     ///
     /// The check at slot 4 will fail with the pre-incremental-snapshot cleaning logic.  Because
     /// of the cleaning/purging at slot 4, the incremental snapshot at slot 4 will no longer have
