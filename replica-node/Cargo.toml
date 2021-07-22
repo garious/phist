@@ -1,8 +1,8 @@
 [package]
 authors = ["Solana Maintainers <maintainers@solana.foundation>"]
 edition = "2018"
-name = "solana-rpc-node"
-description = "Blockchain, Rebuilt for Scale"
+name = "solana-replica-node"
+description = "Solana replication node"
 version = "1.8.0"
 repository = "https://github.com/solana-labs/solana"
 license = "Apache-2.0"

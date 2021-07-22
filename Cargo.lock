@@ -5371,6 +5371,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "solana-replica-node"
+version = "1.8.0"
+dependencies = [
+ "bincode",
+ "chrono",
+ "clap 2.33.3",
+ "console 0.11.3",
+ "crossbeam-channel",
+ "jsonrpc-core",
+ "jsonrpc-core-client",
+ "jsonrpc-derive",
+ "jsonrpc-ipc-server",
+ "jsonrpc-server-utils",
+ "log 0.4.14",
+ "rand 0.7.3",
+ "serde",
+ "solana-clap-utils",
+ "solana-cli-config",
+ "solana-client",
+ "solana-core",
+ "solana-download-utils",
+ "solana-genesis-utils",
+ "solana-gossip",
+ "solana-ledger",
+ "solana-local-cluster",
+ "solana-logger 1.8.0",
+ "solana-metrics",
+ "solana-net-utils",
+ "solana-rpc",
+ "solana-runtime",
+ "solana-sdk",
+ "solana-validator",
+ "solana-version",
+ "tempdir",
+]
+
+[[package]]
 name = "solana-rpc"
 version = "1.8.0"
 dependencies = [
@@ -5416,43 +5453,6 @@ dependencies = [
  "tokio 0.2.22",
  "tokio 1.8.1",
  "tokio-util 0.3.1",
-]
-
-[[package]]
-name = "solana-rpc-node"
-version = "1.8.0"
-dependencies = [
- "bincode",
- "chrono",
- "clap 2.33.3",
- "console 0.11.3",
- "crossbeam-channel",
- "jsonrpc-core",
- "jsonrpc-core-client",
- "jsonrpc-derive",
- "jsonrpc-ipc-server",
- "jsonrpc-server-utils",
- "log 0.4.14",
- "rand 0.7.3",
- "serde",
- "solana-clap-utils",
- "solana-cli-config",
- "solana-client",
- "solana-core",
- "solana-download-utils",
- "solana-genesis-utils",
- "solana-gossip",
- "solana-ledger",
- "solana-local-cluster",
- "solana-logger 1.8.0",
- "solana-metrics",
- "solana-net-utils",
- "solana-rpc",
- "solana-runtime",
- "solana-sdk",
- "solana-validator",
- "solana-version",
- "tempdir",
 ]
 
 [[package]]
