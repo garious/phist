@@ -384,7 +384,7 @@ fn get_cluster_shred_version(entrypoints: &[SocketAddr]) -> Option<u16> {
 
 // Discover the RPC peer node via Gossip and return's ContactInfo
 // And the initial snapshot info: (Slot, Hash)
-// TBD, this can be solved via a RPC call instead of using gossip.
+// Alternatively, this can be solved via a RPC call instead of using gossip.
 fn get_rpc_peer_node(
     cluster_info: &ClusterInfo,
     cluster_entrypoints: &[ContactInfo],
