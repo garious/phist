@@ -136,7 +136,7 @@ fn initialize_from_snapshot(
     );
 
     download_snapshot(
-        &rpc_source_addr,
+        rpc_source_addr,
         snapshot_output_dir,
         snapshot_info,
         false,
@@ -168,12 +168,12 @@ fn initialize_from_snapshot(
         &snapshot_config.snapshot_path
     );
     let (bank0, _) = snapshot_utils::bank_from_snapshot_archive(
-        &account_paths,
+        account_paths,
         &[],
         &snapshot_config.snapshot_path,
         &archive_filename,
         archive_info.archive_format,
-        &genesis_config,
+        genesis_config,
         process_options.debug_keys.clone(),
         None,
         process_options.account_indexes.clone(),
@@ -220,7 +220,7 @@ fn start_client_rpc_services(
     } = bank_info;
 
     let blockstore = Arc::new(
-        Blockstore::open_with_access_type(&ledger_path, AccessType::PrimaryOnly, None, false)
+        Blockstore::open_with_access_type(ledger_path, AccessType::PrimaryOnly, None, false)
             .unwrap(),
     );
 
@@ -261,7 +261,7 @@ fn start_client_rpc_services(
                 cluster_info,
                 None,
                 genesis_config.hash(),
-                &ledger_path,
+                ledger_path,
                 config.validator_exit.clone(),
                 config.trusted_validators.clone(),
                 rpc_override_health_check,
@@ -538,8 +538,8 @@ fn get_rpc_peer_info(
 
     let gossip = Some(start_gossip_node(
         identity_keypair,
-        &cluster_entrypoints,
-        &ledger_path,
+        cluster_entrypoints,
+        ledger_path,
         &node.info.gossip,
         node.sockets.gossip.try_clone().unwrap(),
         expected_shred_version,
@@ -549,10 +549,10 @@ fn get_rpc_peer_info(
 
     let rpc_node_details = get_rpc_peer_node(
         &gossip.as_ref().unwrap().0,
-        &cluster_entrypoints,
+        cluster_entrypoints,
         expected_shred_version,
-        &peer_pubkey,
-        &snapshot_output_dir,
+        peer_pubkey,
+        snapshot_output_dir,
     );
     let rpc_node_details = rpc_node_details.unwrap();
 
