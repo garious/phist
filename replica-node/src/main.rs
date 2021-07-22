@@ -1,5 +1,5 @@
-//! The main AccountsDb replication rpc-node responsible for replicating
-//! AccountsDb information from peer validator or another rpc-node.
+//! The main AccountsDb replication node responsible for replicating
+//! AccountsDb information from peer a validator or another replica-node.
 
 #![allow(clippy::integer_arithmetic)]
 use crossbeam_channel::unbounded;
@@ -65,7 +65,7 @@ use {
     },
 };
 
-struct RpcNodeConfig {
+struct ReplicaNodeConfig {
     rpc_source_addr: SocketAddr,
     rpc_addr: SocketAddr,
     rpc_pubsub_addr: SocketAddr,
@@ -302,8 +302,8 @@ fn start_client_rpc_services(
 }
 
 // Run the replica RPC node.
-fn run_rpc_node(rpc_node_config: RpcNodeConfig) {
-    let RpcNodeConfig {
+fn run_replica_node(rpc_node_config: ReplicaNodeConfig) {
+    let ReplicaNodeConfig {
         rpc_source_addr,
         rpc_addr,
         rpc_pubsub_addr,
@@ -870,7 +870,7 @@ pub fn main() {
         rpc_contact_info.id, rpc_contact_info.rpc, snapshot_info
     );
 
-    let config = RpcNodeConfig {
+    let config = ReplicaNodeConfig {
         rpc_source_addr,
         rpc_addr: rpc_addrs.0,
         rpc_pubsub_addr: rpc_addrs.1,
@@ -882,5 +882,5 @@ pub fn main() {
         cluster_info,
     };
 
-    run_rpc_node(config);
+    run_replica_node(config);
 }
