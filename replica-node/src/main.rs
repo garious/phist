@@ -327,7 +327,7 @@ fn run_replica_node(rpc_node_config: ReplicaNodeConfig) {
 
     let config = ValidatorConfig {
         rpc_addrs: Some((rpc_addr, rpc_pubsub_addr)),
-        ..Default::default()
+        ..ValidatorConfig::default()
     };
 
     let snapshot_config = SnapshotConfig {
