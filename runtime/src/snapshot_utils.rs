@@ -2777,9 +2777,6 @@ mod tests {
         let key1 = Keypair::new();
         let key2 = Keypair::new();
 
-        error!("bprumo DEBUG: Account1 pubkey: {:?}", key1.pubkey());
-        error!("bprumo DEBUG: Account2 pubkey: {:?}", key2.pubkey());
-
         let accounts_dir = tempfile::TempDir::new().unwrap();
         let snapshots_dir = tempfile::TempDir::new().unwrap();
         let snapshot_archives_dir = tempfile::TempDir::new().unwrap();
@@ -2816,10 +2813,6 @@ mod tests {
         }
 
         let full_snapshot_slot = slot;
-        error!(
-            "bprumo DEBUG: taking full snapshot of slot: {}",
-            full_snapshot_slot
-        );
         let full_snapshot_archive_path = bank_to_full_snapshot_archive(
             snapshots_dir.path(),
             &bank1,
@@ -2833,10 +2826,6 @@ mod tests {
 
         let slot = slot + 1;
         let bank2 = Arc::new(Bank::new_from_parent(&bank1, &collector, slot));
-        warn!(
-            "bprumo DEBUG: Account1 balance before transfer: {}",
-            bank2.get_balance(&key1.pubkey())
-        );
         let tx = system_transaction::transfer(
             &key1,
             &key2.pubkey(),
@@ -2845,7 +2834,6 @@ mod tests {
         );
         let (_blockhash, fee_calculator) = bank2.last_blockhash_with_fee_calculator();
         let fee = fee_calculator.calculate_fee(tx.message());
-        warn!("bprumo DEBUG: fee: {}", fee);
         let tx = system_transaction::transfer(
             &key1,
             &key2.pubkey(),
@@ -2853,10 +2841,6 @@ mod tests {
             bank2.last_blockhash(),
         );
         bank2.process_transaction(&tx).unwrap();
-        warn!(
-            "bprumo DEBUG: Account1 balance after transfer: {}",
-            bank2.get_balance(&key1.pubkey())
-        );
         assert_eq!(
             bank2.get_balance(&key1.pubkey()),
             0,
@@ -2868,10 +2852,6 @@ mod tests {
 
         // Take an incremental snapshot and then do a roundtrip on the bank and ensure it
         // deserializes correctly.
-        error!(
-            "bprumo DEBUG: taking incremental snapshot of slot: {}",
-            slot
-        );
         let incremental_snapshot_archive_path = bank_to_incremental_snapshot_archive(
             snapshots_dir.path(),
             &bank2,
@@ -2883,7 +2863,6 @@ mod tests {
             DEFAULT_MAX_FULL_SNAPSHOT_ARCHIVES_TO_RETAIN,
         )
         .unwrap();
-        error!("bprumo DEBUG: about to load bank from incremental snapshots, should be slots fss slot: {}, iss slot: {}", full_snapshot_slot, slot);
         let (deserialized_bank, _) = bank_from_snapshot_archives(
             &[accounts_dir.path().to_path_buf()],
             &[],
@@ -2925,17 +2904,7 @@ mod tests {
 
         // Ensure account1 has been cleaned/purged from everywhere
         bank4.squash();
-        error!("bprumo DEBUG: cleaning via bank4.clean_accounts()");
         bank4.clean_accounts(true, false, Some(full_snapshot_slot));
-        error!(
-            "bprumo DEBUG: after clean(), bank4's key1 ref count: {}",
-            bank4
-                .rc
-                .accounts
-                .accounts_db
-                .accounts_index
-                .ref_count_from_storage(&key1.pubkey())
-        );
         assert_eq!(
             bank4.get_account(&key1.pubkey()),
             None,
@@ -2944,10 +2913,6 @@ mod tests {
 
         // Take an incremental snapshot and then do a roundtrip on the bank and ensure it
         // deserializes correctly
-        error!(
-            "bprumo DEBUG: taking incremental snapshot of slot: {}",
-            slot
-        );
         let incremental_snapshot_archive_path = bank_to_incremental_snapshot_archive(
             snapshots_dir.path(),
             &bank4,
@@ -2960,7 +2925,6 @@ mod tests {
         )
         .unwrap();
 
-        error!("bprumo DEBUG: about to load bank from incremental snapshots, should be slots fss slot: {}, iss slot: {}", full_snapshot_slot, slot);
         let (deserialized_bank, _) = bank_from_snapshot_archives(
             &[accounts_dir.path().to_path_buf()],
             &[],
@@ -2979,15 +2943,6 @@ mod tests {
             false,
         )
         .unwrap();
-        warn!(
-            "bprumo DEBUG: at end, deserialized bank's key1 ref count: {}",
-            deserialized_bank
-                .rc
-                .accounts
-                .accounts_db
-                .accounts_index
-                .ref_count_from_storage(&key1.pubkey())
-        );
         assert_eq!(
             deserialized_bank, *bank4,
             "Ensure rebuilding from an incremental snapshot works",

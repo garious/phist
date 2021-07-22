@@ -1807,10 +1807,6 @@ impl AccountsDb {
         last_full_snapshot_slot: Option<Slot>,
     ) {
         let max_clean_root = self.max_clean_root(max_clean_root);
-        error!(
-            "bprumo DEBUG: clean_accounts(), last_full_snapshot_slot: {:?}, max_clean_root: {:?}",
-            last_full_snapshot_slot, max_clean_root
-        );
 
         // hold a lock to prevent slot shrinking from running because it might modify some rooted
         // slot storages which can not happen as long as we're cleaning accounts because we're also
@@ -1820,10 +1816,6 @@ impl AccountsDb {
 
         let mut key_timings = CleanKeyTimings::default();
         let pubkeys = self.construct_candidate_clean_keys(max_clean_root, &mut key_timings);
-        error!(
-            "bprumo DEBUG: clean_accounts(), construct_candidate_clean_keys(): {:?}",
-            pubkeys
-        );
 
         let total_keys_count = pubkeys.len();
         let mut accounts_scan = Measure::start("accounts_scan");
@@ -1839,10 +1831,6 @@ impl AccountsDb {
                             match self.accounts_index.get(pubkey, None, max_clean_root) {
                                 AccountIndexGetResult::Found(locked_entry, index) => {
                                     let slot_list = locked_entry.slot_list();
-                                    error!(
-                                        "bprumo DEBUG: clean_accounts() scan loop, slot_list: {:?}",
-                                        slot_list
-                                    );
                                     let (slot, account_info) = &slot_list[index];
                                     if account_info.lamports == 0 {
                                         purges_zero_lamports.insert(
@@ -1895,11 +1883,6 @@ impl AccountsDb {
             }
         };
         accounts_scan.stop();
-        error!(
-            "bprumo DEBUG: clean_accounts(), after scan\n\tpurges_zero_lamports: {:?}\n\tpurges_old_accounts: {:?}",
-            purges_zero_lamports,
-            purges_old_accounts,
-        );
 
         let mut clean_old_rooted = Measure::start("clean_old_roots");
         let (purged_account_slots, removed_accounts) =
@@ -1966,11 +1949,6 @@ impl AccountsDb {
         Self::calc_delete_dependencies(&purges_zero_lamports, &mut store_counts);
         calc_deps_time.stop();
 
-        error!(
-            "bprumo DEBUG: clean_accounts(), after calc_delete_dependencies()\n\tstore_counts: {:?}",
-            store_counts,
-        );
-
         // Only keep purges_zero_lamports where the entire history of the account in the root set
         // can be purged. All AppendVecs for those updates are dead.
         let mut purge_filter = Measure::start("purge_filter");
@@ -1983,11 +1961,6 @@ impl AccountsDb {
             true
         });
         purge_filter.stop();
-
-        error!(
-            "bprumo DEBUG: clean_accounts(), after purge filter\n\tpurges_zero_lamports: {:?}",
-            purges_zero_lamports,
-        );
 
         // When using incremental snapshots, do not purge zero-lamport accounts if the slot is
         // higher than the last full snapshot slot.  This is to protect against the following
@@ -2020,19 +1993,14 @@ impl AccountsDb {
                         // full snapshot slot.  Since we're `retain`ing the accounts-to-purge, I
                         // felt creating the `cannot_purge` variable made this easier to
                         // understand.
-                        let cannot_purge = account_info.is_zero_lamport() && *slot > last_full_snapshot_slot;
-                        if cannot_purge { error!("bprumo DEBUG: clean_accounts(), filter2, retaining this account!\n\tpubkey: {:?}\n\tslot: {}, account_info: {:?}", pubkey, slot, account_info); }
+                        let cannot_purge =
+                            account_info.is_zero_lamport() && *slot > last_full_snapshot_slot;
                         !cannot_purge
                     })
                 });
             }
         }
         measure_purge_filter_zero_lamports.stop();
-
-        error!(
-            "bprumo DEBUG: clean_accounts(), after purge second filter, last full snapshot slot\n\tpurges_zero_lamports: {:?}",
-            purges_zero_lamports,
-        );
 
         let mut reclaims_time = Measure::start("reclaims");
         // Recalculate reclaims with new purge set
@@ -2049,16 +2017,7 @@ impl AccountsDb {
             })
             .collect();
 
-        error!(
-            "bprumo DEBUG: clean_accounts(), after pubkey to slot\n\tpubkey_to_slot_set: {:?}",
-            pubkey_to_slot_set,
-        );
-
         let reclaims = self.purge_keys_exact(pubkey_to_slot_set.iter());
-        error!(
-            "bprumo DEBUG: clean_accounts(), after purge_keys_exact(), before handle_reclaims()\n\treclaims: {:?}",
-            reclaims,
-        );
 
         // Don't reset from clean, since the pubkeys in those stores may need to be unref'ed
         // and those stores may be used for background hashing.
@@ -12161,7 +12120,6 @@ pub mod tests {
         let accounts_db = AccountsDb::new_single();
         let pubkey = solana_sdk::pubkey::new_rand();
         let owner = solana_sdk::pubkey::new_rand();
-        error!("bprumo DEBUG: pubkey: {:?}", &pubkey);
 
         let slot = 1;
         let account = AccountSharedData::new(123, 1, &owner);
@@ -12174,23 +12132,7 @@ pub mod tests {
         accounts_db.get_accounts_delta_hash(slot);
         accounts_db.add_root(slot);
 
-        error!(
-            "bprumo DEBUG: before clean(1), account slot list: {:?}",
-            accounts_db
-                .accounts_index
-                .get_account_read_entry(&pubkey)
-                .unwrap()
-                .slot_list()
-        );
         accounts_db.clean_accounts(None, false, Some(slot - 1));
-        error!(
-            "bprumo DEBUG: after clean(1), account slot list: {:?}",
-            accounts_db
-                .accounts_index
-                .get_account_read_entry(&pubkey)
-                .unwrap()
-                .slot_list()
-        );
 
         assert!(accounts_db
             .accounts_index
