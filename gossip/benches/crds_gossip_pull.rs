@@ -10,9 +10,9 @@ use {
         crds::Crds,
         crds_gossip_pull::{CrdsFilter, CrdsGossipPull},
         crds_value::CrdsValue,
+        sync::RwLock,
     },
     solana_sdk::hash,
-    std::sync::RwLock,
     test::Bencher,
 };
 

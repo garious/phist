@@ -20,6 +20,7 @@ use {
         crds_gossip_error::CrdsGossipError,
         crds_value::CrdsValue,
         ping_pong::PingCache,
+        sync::RwLock,
         weighted_shuffle::WeightedShuffle,
     },
     itertools::Itertools,
@@ -40,7 +41,7 @@ use {
         net::SocketAddr,
         sync::{
             atomic::{AtomicUsize, Ordering},
-            Mutex, RwLock,
+            Mutex,
         },
         time::{Duration, Instant},
     },

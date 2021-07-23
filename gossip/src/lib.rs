@@ -20,6 +20,7 @@ pub mod epoch_slots;
 pub mod gossip_error;
 pub mod gossip_service;
 pub mod ping_pong;
+pub mod sync;
 pub mod weighted_shuffle;
 
 #[macro_use]

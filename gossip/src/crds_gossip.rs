@@ -15,6 +15,7 @@ use {
         crds_value::{CrdsData, CrdsValue},
         duplicate_shred::{self, DuplicateShredIndex, LeaderScheduleFn, MAX_DUPLICATE_SHREDS},
         ping_pong::PingCache,
+        sync::RwLock,
     },
     rayon::ThreadPool,
     solana_ledger::shred::Shred,
@@ -28,7 +29,7 @@ use {
     std::{
         collections::{HashMap, HashSet},
         net::SocketAddr,
-        sync::{Mutex, RwLock},
+        sync::Mutex,
         time::Duration,
     },
 };
