@@ -3,11 +3,17 @@ use crate::account::{
     InheritableAccountFields, DUMMY_INHERITABLE_ACCOUNT_FIELDS,
 };
 use crate::clock::INITIAL_RENT_EPOCH;
+#[allow(deprecated)]
 use solana_program::sysvar::recent_blockhashes::{
     IntoIterSorted, IterItem, RecentBlockhashes, MAX_ENTRIES,
 };
 use std::{collections::BinaryHeap, iter::FromIterator};
 
+#[deprecated(
+    since = "1.8.0",
+    note = "Please do not use, will no longer be available in the future"
+)]
+#[allow(deprecated)]
 pub fn update_account<'a, I>(
     account: &mut AccountSharedData,
     recent_blockhash_iter: I,
@@ -16,8 +22,11 @@ where
     I: IntoIterator<Item = IterItem<'a>>,
 {
     let sorted = BinaryHeap::from_iter(recent_blockhash_iter);
+    #[allow(deprecated)]
     let sorted_iter = IntoIterSorted::new(sorted);
+    #[allow(deprecated)]
     let recent_blockhash_iter = sorted_iter.take(MAX_ENTRIES);
+    #[allow(deprecated)]
     let recent_blockhashes: RecentBlockhashes = recent_blockhash_iter.collect();
     to_account(&recent_blockhashes, account)
 }
@@ -26,13 +35,20 @@ where
     since = "1.5.17",
     note = "Please use `create_account_with_data_for_test` instead"
 )]
+#[allow(deprecated)]
 pub fn create_account_with_data<'a, I>(lamports: u64, recent_blockhash_iter: I) -> AccountSharedData
 where
     I: IntoIterator<Item = IterItem<'a>>,
 {
+    #[allow(deprecated)]
     create_account_with_data_and_fields(recent_blockhash_iter, (lamports, INITIAL_RENT_EPOCH))
 }
 
+#[deprecated(
+    since = "1.8.0",
+    note = "Please do not use, will no longer be available in the future"
+)]
+#[allow(deprecated)]
 pub fn create_account_with_data_and_fields<'a, I>(
     recent_blockhash_iter: I,
     fields: InheritableAccountFields,
@@ -48,6 +64,11 @@ where
     account
 }
 
+#[deprecated(
+    since = "1.8.0",
+    note = "Please do not use, will no longer be available in the future"
+)]
+#[allow(deprecated)]
 pub fn create_account_with_data_for_test<'a, I>(recent_blockhash_iter: I) -> AccountSharedData
 where
     I: IntoIterator<Item = IterItem<'a>>,
@@ -57,6 +78,7 @@ where
 
 #[cfg(test)]
 mod tests {
+    #![allow(deprecated)]
     use super::*;
     use crate::account::from_account;
     use rand::{seq::SliceRandom, thread_rng};

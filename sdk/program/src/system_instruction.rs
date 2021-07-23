@@ -1,10 +1,12 @@
+#[allow(deprecated)]
+use crate::sysvar::recent_blockhashes;
 use crate::{
     decode_error::DecodeError,
     instruction::{AccountMeta, Instruction},
     nonce,
     pubkey::Pubkey,
     system_program,
-    sysvar::{recent_blockhashes, rent},
+    sysvar::rent,
 };
 use num_derive::{FromPrimitive, ToPrimitive};
 use thiserror::Error;
@@ -400,6 +402,7 @@ pub fn create_nonce_account_with_seed(
             &SystemInstruction::InitializeNonceAccount(*authority),
             vec![
                 AccountMeta::new(*nonce_pubkey, false),
+                #[allow(deprecated)]
                 AccountMeta::new_readonly(recent_blockhashes::id(), false),
                 AccountMeta::new_readonly(rent::id(), false),
             ],
@@ -426,6 +429,7 @@ pub fn create_nonce_account(
             &SystemInstruction::InitializeNonceAccount(*authority),
             vec![
                 AccountMeta::new(*nonce_pubkey, false),
+                #[allow(deprecated)]
                 AccountMeta::new_readonly(recent_blockhashes::id(), false),
                 AccountMeta::new_readonly(rent::id(), false),
             ],
@@ -436,6 +440,7 @@ pub fn create_nonce_account(
 pub fn advance_nonce_account(nonce_pubkey: &Pubkey, authorized_pubkey: &Pubkey) -> Instruction {
     let account_metas = vec![
         AccountMeta::new(*nonce_pubkey, false),
+        #[allow(deprecated)]
         AccountMeta::new_readonly(recent_blockhashes::id(), false),
         AccountMeta::new_readonly(*authorized_pubkey, true),
     ];
@@ -455,6 +460,7 @@ pub fn withdraw_nonce_account(
     let account_metas = vec![
         AccountMeta::new(*nonce_pubkey, false),
         AccountMeta::new(*to_pubkey, false),
+        #[allow(deprecated)]
         AccountMeta::new_readonly(recent_blockhashes::id(), false),
         AccountMeta::new_readonly(rent::id(), false),
         AccountMeta::new_readonly(*authorized_pubkey, true),

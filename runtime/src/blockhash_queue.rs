@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
-use solana_sdk::{
-    fee_calculator::FeeCalculator, hash::Hash, sysvar::recent_blockhashes, timing::timestamp,
-};
+#[allow(deprecated)]
+use solana_sdk::sysvar::recent_blockhashes;
+use solana_sdk::{fee_calculator::FeeCalculator, hash::Hash, timing::timestamp};
 use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize, AbiExample)]
@@ -121,6 +121,11 @@ impl BlockhashQueue {
         None
     }
 
+    #[deprecated(
+        since = "1.8.0",
+        note = "Please do not use, will no longer be available in the future"
+    )]
+    #[allow(deprecated)]
     pub fn get_recent_blockhashes(&self) -> impl Iterator<Item = recent_blockhashes::IterItem> {
         (&self.ages)
             .iter()
@@ -135,9 +140,9 @@ impl BlockhashQueue {
 mod tests {
     use super::*;
     use bincode::serialize;
-    use solana_sdk::{
-        clock::MAX_RECENT_BLOCKHASHES, hash::hash, sysvar::recent_blockhashes::IterItem,
-    };
+    #[allow(deprecated)]
+    use solana_sdk::sysvar::recent_blockhashes::IterItem;
+    use solana_sdk::{clock::MAX_RECENT_BLOCKHASHES, hash::hash};
 
     #[test]
     fn test_register_hash() {
@@ -180,6 +185,7 @@ mod tests {
     #[test]
     fn test_get_recent_blockhashes() {
         let mut blockhash_queue = BlockhashQueue::new(MAX_RECENT_BLOCKHASHES);
+        #[allow(deprecated)]
         let recent_blockhashes = blockhash_queue.get_recent_blockhashes();
         // Sanity-check an empty BlockhashQueue
         assert_eq!(recent_blockhashes.count(), 0);
@@ -187,8 +193,10 @@ mod tests {
             let hash = hash(&serialize(&i).unwrap());
             blockhash_queue.register_hash(&hash, &FeeCalculator::default());
         }
+        #[allow(deprecated)]
         let recent_blockhashes = blockhash_queue.get_recent_blockhashes();
         // Verify that the returned hashes are most recent
+        #[allow(deprecated)]
         for IterItem(_slot, hash, _fee_calc) in recent_blockhashes {
             assert_eq!(
                 Some(true),

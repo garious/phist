@@ -65,6 +65,8 @@ use log::*;
 use rayon::ThreadPool;
 use solana_measure::measure::Measure;
 use solana_metrics::{datapoint_debug, inc_new_counter_debug, inc_new_counter_info};
+#[allow(deprecated)]
+use solana_sdk::recent_blockhashes_account;
 use solana_sdk::{
     account::{
         create_account_shared_data_with_fields as create_account, from_account, Account,
@@ -96,7 +98,6 @@ use solana_sdk::{
     process_instruction::{ComputeMeter, Executor, ProcessInstructionWithContext},
     program_utils::limited_deserialize,
     pubkey::Pubkey,
-    recent_blockhashes_account,
     sanitized_transaction::{SanitizedTransaction, SanitizedTransactionSlice},
     signature::{Keypair, Signature},
     slot_hashes::SlotHashes,
@@ -2157,6 +2158,7 @@ impl Bank {
     }
 
     fn update_recent_blockhashes_locked(&self, locked_blockhash_queue: &BlockhashQueue) {
+        #[allow(deprecated)]
         self.update_sysvar_account(&sysvar::recent_blockhashes::id(), |account| {
             let recent_blockhash_iter = locked_blockhash_queue.get_recent_blockhashes();
             recent_blockhashes_account::create_account_with_data_and_fields(
@@ -5292,6 +5294,7 @@ impl Bank {
             sysvar::clock::id(),
             sysvar::epoch_schedule::id(),
             sysvar::fees::id(),
+            #[allow(deprecated)]
             sysvar::recent_blockhashes::id(),
             sysvar::rent::id(),
             sysvar::rewards::id(),
@@ -9737,6 +9740,7 @@ pub(crate) mod tests {
         );
     }
 
+    #[allow(deprecated)]
     #[test]
     fn test_recent_blockhashes_sysvar() {
         let (genesis_config, _mint_keypair) = create_genesis_config(500);
@@ -9756,6 +9760,7 @@ pub(crate) mod tests {
         }
     }
 
+    #[allow(deprecated)]
     #[test]
     fn test_blockhash_queue_sysvar_consistency() {
         let (genesis_config, _mint_keypair) = create_genesis_config(100_000);
@@ -11990,6 +11995,7 @@ pub(crate) mod tests {
                             sysvar::clock::id(),
                             sysvar::epoch_schedule::id(),
                             sysvar::fees::id(),
+                            #[allow(deprecated)]
                             sysvar::recent_blockhashes::id(),
                             sysvar::rent::id(),
                             sysvar::slot_hashes::id(),
@@ -12100,6 +12106,7 @@ pub(crate) mod tests {
                             sysvar::clock::id(),
                             sysvar::epoch_schedule::id(),
                             sysvar::fees::id(),
+                            #[allow(deprecated)]
                             sysvar::recent_blockhashes::id(),
                             sysvar::rent::id(),
                             sysvar::rewards::id(),
@@ -13614,12 +13621,9 @@ pub(crate) mod tests {
         bank.add_builtin("mock_program1", program_id, mock_ix_processor);
 
         let blockhash = bank.last_blockhash();
-        let blockhash_sysvar = sysvar::recent_blockhashes::id();
-        let orig_lamports = bank
-            .get_account(&sysvar::recent_blockhashes::id())
-            .unwrap()
-            .lamports();
-        info!("{:?}", bank.get_account(&sysvar::recent_blockhashes::id()));
+        let blockhash_sysvar = sysvar::fees::id();
+        let orig_lamports = bank.get_account(&sysvar::fees::id()).unwrap().lamports();
+        info!("{:?}", bank.get_account(&sysvar::fees::id()));
         let tx = system_transaction::transfer(&mint_keypair, &blockhash_sysvar, 10, blockhash);
         assert_eq!(
             bank.process_transaction(&tx),
@@ -13629,12 +13633,10 @@ pub(crate) mod tests {
             ))
         );
         assert_eq!(
-            bank.get_account(&sysvar::recent_blockhashes::id())
-                .unwrap()
-                .lamports(),
+            bank.get_account(&sysvar::fees::id()).unwrap().lamports(),
             orig_lamports
         );
-        info!("{:?}", bank.get_account(&sysvar::recent_blockhashes::id()));
+        info!("{:?}", bank.get_account(&sysvar::fees::id()));
 
         let accounts = vec![
             AccountMeta::new(mint_keypair.pubkey(), true),

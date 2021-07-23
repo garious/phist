@@ -1,4 +1,6 @@
 use log::*;
+#[allow(deprecated)]
+use solana_sdk::sysvar::recent_blockhashes::RecentBlockhashes;
 use solana_sdk::{
     account::{AccountSharedData, ReadableAccount, WritableAccount},
     account_utils::StateMut,
@@ -12,7 +14,7 @@ use solana_sdk::{
     pubkey::Pubkey,
     system_instruction::{SystemError, SystemInstruction, MAX_PERMITTED_DATA_LENGTH},
     system_program,
-    sysvar::{self, recent_blockhashes::RecentBlockhashes, rent::Rent},
+    sysvar::{self, rent::Rent},
 };
 use std::collections::HashSet;
 
@@ -352,6 +354,7 @@ pub fn process_instruction(
         SystemInstruction::AdvanceNonceAccount => {
             let me = &mut keyed_account_at_index(keyed_accounts, 0)?;
             me.advance_nonce_account(
+                #[allow(deprecated)]
                 &from_keyed_account::<RecentBlockhashes>(keyed_account_at_index(
                     keyed_accounts,
                     1,
@@ -366,6 +369,7 @@ pub fn process_instruction(
             me.withdraw_nonce_account(
                 lamports,
                 to,
+                #[allow(deprecated)]
                 &from_keyed_account::<RecentBlockhashes>(keyed_account_at_index(
                     keyed_accounts,
                     2,
@@ -379,6 +383,7 @@ pub fn process_instruction(
             let me = &mut keyed_account_at_index(keyed_accounts, 0)?;
             me.initialize_nonce_account(
                 &authorized,
+                #[allow(deprecated)]
                 &from_keyed_account::<RecentBlockhashes>(keyed_account_at_index(
                     keyed_accounts,
                     1,
@@ -462,6 +467,8 @@ mod tests {
     use super::*;
     use crate::{bank::Bank, bank_client::BankClient};
     use bincode::serialize;
+    #[allow(deprecated)]
+    use solana_sdk::sysvar::recent_blockhashes::IterItem;
     use solana_sdk::{
         account::{self, Account, AccountSharedData},
         client::SyncClient,
@@ -475,7 +482,6 @@ mod tests {
         recent_blockhashes_account,
         signature::{Keypair, Signer},
         system_instruction, system_program, sysvar,
-        sysvar::recent_blockhashes::IterItem,
         transaction::TransactionError,
     };
     use std::cell::RefCell;
@@ -507,6 +513,7 @@ mod tests {
     }
     fn create_default_recent_blockhashes_account() -> RefCell<AccountSharedData> {
         RefCell::new(
+            #[allow(deprecated)]
             recent_blockhashes_account::create_account_with_data_for_test(
                 vec![
                     IterItem(0u64, &Hash::default(), &FeeCalculator::default());
@@ -1456,6 +1463,7 @@ mod tests {
             .accounts
             .iter()
             .map(|meta| {
+                #[allow(deprecated)]
                 RefCell::new(if sysvar::recent_blockhashes::check_id(&meta.pubkey) {
                     create_default_recent_blockhashes_account().into_inner()
                 } else if sysvar::rent::check_id(&meta.pubkey) {
@@ -1524,6 +1532,7 @@ mod tests {
                 vec![
                     KeyedAccount::new(&Pubkey::default(), true, &create_default_account()),
                     KeyedAccount::new(
+                        #[allow(deprecated)]
                         &sysvar::recent_blockhashes::id(),
                         false,
                         &create_default_account(),
@@ -1543,6 +1552,7 @@ mod tests {
             vec![
                 KeyedAccount::new(&Pubkey::default(), true, &nonce_acc),
                 KeyedAccount::new(
+                    #[allow(deprecated)]
                     &sysvar::recent_blockhashes::id(),
                     false,
                     &create_default_recent_blockhashes_account(),
@@ -1553,6 +1563,7 @@ mod tests {
         )
         .unwrap();
         let new_recent_blockhashes_account = RefCell::new(
+            #[allow(deprecated)]
             solana_sdk::recent_blockhashes_account::create_account_with_data_for_test(
                 vec![
                     IterItem(
@@ -1570,6 +1581,7 @@ mod tests {
                 &Pubkey::default(),
                 vec![
                     KeyedAccount::new(&Pubkey::default(), true, &nonce_acc,),
+                    #[allow(deprecated)]
                     KeyedAccount::new(
                         &sysvar::recent_blockhashes::id(),
                         false,
@@ -1632,6 +1644,7 @@ mod tests {
                     KeyedAccount::new(&Pubkey::default(), true, &create_default_account()),
                     KeyedAccount::new(&Pubkey::default(), false, &create_default_account()),
                     KeyedAccount::new(
+                        #[allow(deprecated)]
                         &sysvar::recent_blockhashes::id(),
                         false,
                         &create_default_account()
@@ -1656,6 +1669,7 @@ mod tests {
                     ),
                     KeyedAccount::new(&Pubkey::default(), true, &create_default_account()),
                     KeyedAccount::new(
+                        #[allow(deprecated)]
                         &sysvar::recent_blockhashes::id(),
                         false,
                         &create_default_recent_blockhashes_account(),
@@ -1681,6 +1695,7 @@ mod tests {
                     ),
                     KeyedAccount::new(&Pubkey::default(), true, &create_default_account()),
                     KeyedAccount::new(
+                        #[allow(deprecated)]
                         &sysvar::recent_blockhashes::id(),
                         false,
                         &create_default_recent_blockhashes_account(),
@@ -1733,6 +1748,7 @@ mod tests {
                         &nonce_account::create_account(1_000_000),
                     ),
                     KeyedAccount::new(
+                        #[allow(deprecated)]
                         &sysvar::recent_blockhashes::id(),
                         false,
                         &create_default_account()
@@ -1756,6 +1772,7 @@ mod tests {
                         &nonce_account::create_account(1_000_000),
                     ),
                     KeyedAccount::new(
+                        #[allow(deprecated)]
                         &sysvar::recent_blockhashes::id(),
                         false,
                         &create_default_recent_blockhashes_account(),
@@ -1780,6 +1797,7 @@ mod tests {
                         &nonce_account::create_account(1_000_000),
                     ),
                     KeyedAccount::new(
+                        #[allow(deprecated)]
                         &sysvar::recent_blockhashes::id(),
                         false,
                         &create_default_recent_blockhashes_account(),
@@ -1800,6 +1818,7 @@ mod tests {
             vec![
                 KeyedAccount::new(&Pubkey::default(), true, &nonce_acc),
                 KeyedAccount::new(
+                    #[allow(deprecated)]
                     &sysvar::recent_blockhashes::id(),
                     false,
                     &create_default_recent_blockhashes_account(),
