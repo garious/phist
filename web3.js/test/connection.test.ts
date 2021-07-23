@@ -2200,6 +2200,27 @@ describe('Connection', () => {
     expect(feeCalculator.lamportsPerSignature).to.eq(5000);
   });
 
+  it('get fees', async () => {
+    await mockRpcResponse({
+      method: 'getFees',
+      params: [{commitment: 'confirmed'}],
+      value: {
+        blockhash: '57zQNBZBEiHsCZFqsaY6h176ioXy5MsSLmcvHkEyaLGy',
+        feeCalculator: {
+          lamportsPerSignature: 5000,
+        },
+        lastValidSlot: 5678,
+        lastValidBlockHeight: 1234,
+      },
+      withContext: true,
+    });
+
+    const fees = (await connection.getFees('confirmed')).value;
+    expect(fees.feeCalculator).not.to.be.null;
+    expect(fees.lastValidSlot).to.be.greaterThan(0);
+    expect(fees.lastValidBlockHeight).to.be.greaterThan(0);
+  })
+
   it('get block time', async () => {
     await mockRpcResponse({
       method: 'getBlockTime',

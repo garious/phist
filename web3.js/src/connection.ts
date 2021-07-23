@@ -708,6 +708,17 @@ export type PerfSample = {
   samplePeriodSecs: number;
 };
 
+export type Fees = {
+  /** Recent blockhash */
+  blockhash: Blockhash;
+  /** Calculator for transaction fees */
+  feeCalculator: FeeCalculator;
+  /** @deprecated this value is inaccurate and should not be relied upon */
+  lastValidSlot: number;
+  /** last block height at which a blockhash will be valid */
+  lastValidBlockHeight: number;
+}
+
 function createRpcClient(
   url: string,
   useHttps: boolean,
@@ -1557,6 +1568,20 @@ const GetFeeCalculatorRpcResult = jsonRpcResultAndContext(
       }),
     }),
   ),
+);
+
+/**
+ * Expected JSON RPC response for the "getFees" message
+ */
+const GetFeesRpcResult = jsonRpcResultAndContext(
+  pick({
+    blockhash: string(),
+    feeCalculator: pick({
+      lamportsPerSignature: number(),
+    }),
+    lastValidSlot: number(),
+    lastValidBlockHeight: number(),
+  }),
 );
 
 /**
@@ -2933,6 +2958,21 @@ export class Connection {
       context,
       value: value !== null ? value.feeCalculator : null,
     };
+  }
+
+  /**
+   * Fetch a recent block hash from the ledger, a fee schedule and the last valid block height the block hash is valid for
+   */
+  async getFees(
+    commitment?: Commitment,
+  ): Promise<RpcResponseAndContext<Fees>> {
+    const args = this._buildArgs([], commitment, undefined);
+    const unsafeRes = await this._rpcRequest('getFees', args);
+    const res = create(unsafeRes, GetFeesRpcResult);
+    if ('error' in res) {
+      throw new Error('failed to get fees: ' + res.error.message);
+    }
+    return res.result;
   }
 
   /**
