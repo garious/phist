@@ -92,6 +92,10 @@ impl ReadOnlyAccountsCache {
         std::mem::size_of::<ReadOnlyAccountCacheEntry>() + std::mem::size_of::<RwLock<Instant>>()
     }
 
+    pub fn in_cache(&self, pubkey: &Pubkey, slot: Slot) -> bool {
+        self.cache.contains_key(&(*pubkey, slot))
+    }
+
     pub fn load(&self, pubkey: &Pubkey, slot: Slot) -> Option<AccountSharedData> {
         self.cache
             .get(&(*pubkey, slot))

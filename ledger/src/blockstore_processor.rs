@@ -239,6 +239,25 @@ pub fn process_entries(
     result
 }
 
+fn prefetch_accounts(bank: &Arc<Bank>, entries: &mut [EntryType]) {
+    let mut pubkeys = HashSet::new();
+    for entry in entries.iter() {
+        if let EntryType::Transactions(transactions) = entry {
+            for transaction in transactions.iter() {
+                for key in &transaction.transaction().message.account_keys {
+                    pubkeys.insert(*key);
+                }
+            }
+        }
+    }
+    let bank_ = bank.clone();
+    rayon::spawn(move || {
+        for key in pubkeys {
+            bank_.load_accounts_into_read_only_cache(&key);
+        }
+    });
+}
+
 // Note: If randomize is true this will shuffle entries' transactions in-place.
 fn process_entries_with_callback(
     bank: &Arc<Bank>,
@@ -253,6 +272,8 @@ fn process_entries_with_callback(
     let mut batches = vec![];
     let mut tick_hashes = vec![];
     let mut rng = thread_rng();
+
+    self.prefetch_accounts(bank, entries);
 
     for entry in entries {
         match entry {
