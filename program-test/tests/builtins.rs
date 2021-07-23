@@ -9,7 +9,8 @@ use solana_program_test::ProgramTest;
 #[tokio::test]
 async fn test_bpf_loader_upgradable_present() {
     // Arrange
-    let (mut banks_client, payer, recent_blockhash) = ProgramTest::default().start().await;
+    let (mut banks_client, mut banks_client2, payer, recent_blockhash) =
+        ProgramTest::default().start_with_two_banks_clients().await;
 
     let buffer_keypair = Keypair::new();
     let upgrade_authority_keypair = Keypair::new();
@@ -34,7 +35,7 @@ async fn test_bpf_loader_upgradable_present() {
     banks_client.process_transaction(transaction).await.unwrap();
 
     // Assert
-    let buffer_account = banks_client
+    let buffer_account = banks_client2
         .get_account(buffer_keypair.pubkey())
         .await
         .unwrap()

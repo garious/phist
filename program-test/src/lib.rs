@@ -819,6 +819,7 @@ impl ProgramTest {
         let (bank_forks, block_commitment_cache, last_blockhash, gci) = self.setup_bank();
         let transport =
             start_local_server(bank_forks.clone(), block_commitment_cache.clone()).await;
+
         let banks_client = start_client(transport)
             .await
             .unwrap_or_else(|err| panic!("Failed to start banks client: {}", err));
@@ -839,6 +840,45 @@ impl ProgramTest {
         });
 
         (banks_client, gci.mint_keypair, last_blockhash)
+    }
+
+    pub async fn start_with_two_banks_clients(self) -> (BanksClient, BanksClient, Keypair, Hash) {
+        let (bank_forks, block_commitment_cache, last_blockhash, gci) = self.setup_bank();
+        let transport =
+            start_local_server(bank_forks.clone(), block_commitment_cache.clone()).await;
+
+        let banks_client1 = start_client(transport)
+            .await
+            .unwrap_or_else(|err| panic!("Failed to start banks client: {}", err));
+
+        let transport2 =
+            start_local_server(bank_forks.clone(), block_commitment_cache.clone()).await;
+
+        let banks_client2 = start_client(transport2)
+            .await
+            .unwrap_or_else(|err| panic!("Failed to start banks client: {}", err));
+
+        // Run a simulated PohService to provide the client with new blockhashes.  New blockhashes
+        // are required when sending multiple otherwise identical transactions in series from a
+        // test
+        let target_tick_duration = gci.genesis_config.poh_config.target_tick_duration;
+        tokio::spawn(async move {
+            loop {
+                bank_forks
+                    .read()
+                    .unwrap()
+                    .working_bank()
+                    .register_tick(&Hash::new_unique());
+                tokio::time::sleep(target_tick_duration).await;
+            }
+        });
+
+        (
+            banks_client1,
+            banks_client2,
+            gci.mint_keypair,
+            last_blockhash,
+        )
     }
 
     /// Start the test client
