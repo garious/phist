@@ -131,6 +131,11 @@ function launch_testnet() {
     maybeAsyncNodeInit="--async-node-init"
   fi
 
+  declare maybeAllowPrivateAddr
+  if [[ "$ALLOW_PRIVATE_ADDR" = "true" ]]; then
+    maybeAllowPrivateAddr="--allow-private-addr"
+  fi
+
   declare maybeExtraPrimordialStakes
   if [[ -n "$EXTRA_PRIMORDIAL_STAKES" ]]; then
     maybeExtraPrimordialStakes="--extra-primordial-stakes $EXTRA_PRIMORDIAL_STAKES"
@@ -140,7 +145,8 @@ function launch_testnet() {
   # shellcheck disable=SC2086
   "${REPO_ROOT}"/net/net.sh start $version_args \
     -c idle=$NUMBER_OF_CLIENT_NODES $maybeStartAllowBootFailures \
-    --gpu-mode $startGpuMode $maybeWarpSlot $maybeAsyncNodeInit $maybeExtraPrimordialStakes
+    --gpu-mode $startGpuMode $maybeWarpSlot $maybeAsyncNodeInit \
+    $maybeExtraPrimordialStakes $maybeAllowPrivateAddr
 
   if [[ -n "$WAIT_FOR_EQUAL_STAKE" ]]; then
     wait_for_equal_stake

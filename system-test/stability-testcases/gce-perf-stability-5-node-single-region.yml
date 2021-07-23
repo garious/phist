@@ -15,5 +15,6 @@ steps:
       USE_PUBLIC_IP_ADDRESSES: "false"
       ADDITIONAL_FLAGS: "--dedicated"
       TEST_TYPE: "fixed_duration"
+      ALLOW_PRIVATE_ADDR: "true"
     agents:
       - "queue=gce-deploy"
