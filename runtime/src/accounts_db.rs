@@ -4916,7 +4916,7 @@ impl AccountsDb {
         let time = AtomicU64::new(0);
         (
             accum
-                .into_par_iter()
+                .into_iter()
                 .map(|mut items| {
                     let mut sort_time = Measure::start("sort");
                     {
