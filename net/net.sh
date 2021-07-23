@@ -307,7 +307,7 @@ startBootstrapLeader() {
          $nodeIndex \
          ${#clientIpList[@]} \"$benchTpsExtraArgs\" \
          \"$genesisOptions\" \
-         \"$maybeNoSnapshot $maybeSkipLedgerVerify $maybeLimitLedgerSize $maybeWaitForSupermajority\" \
+         \"$maybeNoSnapshot $maybeSkipLedgerVerify $maybeLimitLedgerSize $maybeWaitForSupermajority $maybeAllowPrivateAddr\" \
          \"$gpuMode\" \
          \"$maybeWarpSlot\" \
          \"$waitForNodeInit\" \
@@ -378,7 +378,7 @@ startNode() {
          $nodeIndex \
          ${#clientIpList[@]} \"$benchTpsExtraArgs\" \
          \"$genesisOptions\" \
-         \"$maybeNoSnapshot $maybeSkipLedgerVerify $maybeLimitLedgerSize $maybeWaitForSupermajority\" \
+         \"$maybeNoSnapshot $maybeSkipLedgerVerify $maybeLimitLedgerSize $maybeWaitForSupermajority $maybeAllowPrivateAddr\" \
          \"$gpuMode\" \
          \"$maybeWarpSlot\" \
          \"$waitForNodeInit\" \
@@ -775,6 +775,7 @@ maybeLimitLedgerSize=""
 maybeSkipLedgerVerify=""
 maybeDisableAirdrops=""
 maybeWaitForSupermajority=""
+maybeAllowPrivateAddr=""
 debugBuild=false
 doBuild=true
 gpuMode=auto
@@ -899,6 +900,9 @@ while [[ -n $1 ]]; do
     elif [[ $1 == --extra-primordial-stakes ]]; then
       extraPrimordialStakes=$2
       shift 2
+    elif [[ $1 = --allow-private-addr ]]; then
+      maybeAllowPrivateAddr="$1"
+      shift 1
     else
       usage "Unknown long option: $1"
     fi

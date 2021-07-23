@@ -155,6 +155,9 @@ while [[ -n $1 ]]; do
     elif [[ $1 == --expected-bank-hash ]]; then
       args+=("$1" "$2")
       shift 2
+    elif [[ $1 == --allow-private-addr ]]; then
+      args+=("$1")
+      shift
     elif [[ $1 = -h ]]; then
       usage "$@"
     else
