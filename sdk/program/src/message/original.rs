@@ -9,6 +9,7 @@ use crate::{
     bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable,
     hash::Hash,
     instruction::{AccountMeta, CompiledInstruction, Instruction},
+    message::MessageHeader,
     pubkey::Pubkey,
     short_vec, system_instruction, system_program, sysvar,
 };
@@ -163,27 +164,8 @@ fn get_program_ids(instructions: &[Instruction]) -> Vec<Pubkey> {
         .collect()
 }
 
-pub const MESSAGE_HEADER_LENGTH: usize = 3;
-
-#[frozen_abi(digest = "BVC5RhetsNpheGipt5rUrkR6RDDUHtD5sCLK1UjymL4S")]
-#[derive(Serialize, Deserialize, Default, Debug, PartialEq, Eq, Clone, AbiExample)]
-#[serde(rename_all = "camelCase")]
-pub struct MessageHeader {
-    /// The number of signatures required for this message to be considered valid. The
-    /// signatures must match the first `num_required_signatures` of `account_keys`.
-    /// NOTE: Serialization-related changes must be paired with the direct read at sigverify.
-    pub num_required_signatures: u8,
-
-    /// The last num_readonly_signed_accounts of the signed keys are read-only accounts. Programs
-    /// may process multiple transactions that load read-only accounts within a single PoH entry,
-    /// but are not permitted to credit or debit lamports or modify account data. Transactions
-    /// targeting the same read-write account are evaluated sequentially.
-    pub num_readonly_signed_accounts: u8,
-
-    /// The last num_readonly_unsigned_accounts of the unsigned keys are read-only accounts.
-    pub num_readonly_unsigned_accounts: u8,
-}
-
+// NOTE: Serialization-related changes must be paired with the custom serialization
+// for versioned messages in the `RemainingMessage` struct.
 #[frozen_abi(digest = "2KnLEqfLcTBQqitE22Pp8JYkaqVVbAkGbCfdeHoyxcAU")]
 #[derive(Serialize, Deserialize, Default, Debug, PartialEq, Eq, Clone, AbiExample)]
 #[serde(rename_all = "camelCase")]
@@ -508,7 +490,7 @@ impl Message {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{hash, instruction::AccountMeta};
+    use crate::{hash, instruction::AccountMeta, message::MESSAGE_HEADER_LENGTH};
     use std::collections::HashSet;
 
     #[test]
