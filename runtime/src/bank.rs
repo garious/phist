@@ -3976,8 +3976,8 @@ impl Bank {
         let cycle_params = self.determine_collection_cycle_params(epoch);
         let (_, _, in_multi_epoch_cycle, _, _, partition_count) = cycle_params;
 
-        // use common codepath for both very likely and very unlikely for the sake of minimized
-        // risk of any miscalculation instead of negligibly faster computation per slot for the
+        // use common code-path for both very-likely and very-unlikely for the sake of minimized
+        // risk of any mis-calculation instead of negligible faster computation per slot for the
         // likely case.
         let mut start_partition_index =
             Self::partition_index_from_slot_index(start_slot_index, cycle_params);
@@ -3989,7 +3989,7 @@ impl Bank {
         let in_middle_of_cycle = start_partition_index > 0;
         if in_multi_epoch_cycle && is_special_new_epoch && in_middle_of_cycle {
             // Adjust slot indexes so that the final partition ranges are continuous!
-            // This is need because the caller gives us off-by-one indexes when
+            // This is needed because the caller gives us off-by-one indexes when
             // an epoch boundary is crossed.
             // Usually there is no need for this adjustment because cycles are aligned
             // with epochs. But for multi-epoch cycles, adjust the indexes if it

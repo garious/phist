@@ -196,6 +196,15 @@ EOF
     artifact_paths: "log-*.txt"
     agents:
       - "queue=cuda"
+  - command: "ci/live-cluster-sanity.sh"
+    name: "live-cluster"
+    timeout_in_minutes: 60
+    artifact_paths:
+      - "*/validator.log"
+      - "*/sys-tuner.log"
+      - "*/snapshot-*.tar.*"
+    agents:
+      - "queue=gce-deploy"
 EOF
   else
     annotate --style info \
