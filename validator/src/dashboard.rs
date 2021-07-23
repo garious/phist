@@ -64,7 +64,7 @@ impl Dashboard {
         } = self;
         drop(progress_bar);
 
-        let mut runtime = admin_rpc_service::runtime();
+        let runtime = admin_rpc_service::runtime();
         while !exit.load(Ordering::Relaxed) {
             let progress_bar = new_spinner_progress_bar();
             progress_bar.set_message("Connecting...");

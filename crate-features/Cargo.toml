@@ -25,7 +25,6 @@ serde = { version = "1.0.100", features = ["rc"] }
 ed25519-dalek = { version = "=1.0.1", features = ["serde"] }
 syn_0_15 = { package = "syn", version = "0.15.42", features = ["extra-traits", "fold", "full"] }
 syn_1_0 = { package = "syn", version = "1.0.3", features = ["extra-traits", "fold", "full"] }
-tokio = { version = "0.1.22",features=["bytes", "codec", "default", "fs", "io", "mio", "num_cpus", "reactor", "rt-full", "sync", "tcp", "timer", "tokio-codec", "tokio-current-thread", "tokio-executor", "tokio-io", "tokio-io", "tokio-reactor", "tokio-tcp", "tokio-tcp", "tokio-threadpool", "tokio-timer", "tokio-udp", "tokio-uds", "udp", "uds"] }
 winapi = { version = "0.3.8", features=["basetsd", "consoleapi", "errhandlingapi", "fileapi", "handleapi", "impl-debug", "impl-default", "knownfolders", "libloaderapi", "memoryapi", "minwinbase", "minwindef", "ntdef", "ntsecapi", "ntstatus", "objbase", "processenv", "processthreadsapi", "profileapi", "shlobj", "std", "synchapi", "sysinfoapi", "timezoneapi", "utilapiset", "winbase", "wincon", "windef", "winerror", "winnls", "winnt", "winreg", "winsock2", "winuser", "ws2def", "ws2ipdef", "ws2tcpip", "wtypesbase"] }
 
 [package.metadata.docs.rs]
