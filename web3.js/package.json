@@ -65,7 +65,7 @@
     "@babel/runtime": "^7.12.5",
     "@solana/buffer-layout": "^3.0.0",
     "bn.js": "^5.0.0",
-    "borsh": "^0.4.0",
+    "borsh": "^0.5.0",
     "bs58": "^4.0.1",
     "buffer": "6.0.1",
     "crypto-hash": "^1.2.2",
