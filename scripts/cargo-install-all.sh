@@ -20,7 +20,7 @@ usage() {
     echo "Error: $*"
   fi
   cat <<EOF
-usage: $0 [+<cargo version>] [--debug] [--validator-only] <install directory>
+usage: $0 [+<cargo version>] [--debug] [--validator-only] [--allow-private-addr] <install directory>
 EOF
   exit $exitcode
 }
@@ -30,6 +30,7 @@ installDir=
 buildVariant=release
 maybeReleaseFlag=--release
 validatorOnly=
+maybeFeatures=
 
 while [[ -n $1 ]]; do
   if [[ ${1:0:1} = - ]]; then
@@ -39,6 +40,9 @@ while [[ -n $1 ]]; do
       shift
     elif [[ $1 = --validator-only ]]; then
       validatorOnly=true
+      shift
+    elif [[ $1 = --allow-private-addr ]]; then
+      maybeFeatures='--features=allow_private_addr'
       shift
     else
       usage "Unknown option: $1"
@@ -126,7 +130,7 @@ mkdir -p "$installDir/bin"
 (
   set -x
   # shellcheck disable=SC2086 # Don't want to double quote $rust_version
-  "$cargo" $maybeRustVersion build $maybeReleaseFlag "${binArgs[@]}"
+  "$cargo" $maybeRustVersion build $maybeReleaseFlag ${maybeFeatures} "${binArgs[@]}"
 
   # Exclude `spl-token` binary for net.sh builds
   if [[ -z "$validatorOnly" ]]; then

@@ -2,12 +2,12 @@ use std::net::SocketAddr;
 
 // TODO: remove these once IpAddr::is_global is stable.
 
-#[cfg(test)]
+#[cfg(any(test, feature = "allow_private_addr"))]
 pub fn is_global(_: &SocketAddr) -> bool {
     true
 }
 
-#[cfg(not(test))]
+#[cfg(not(any(test, feature = "allow_private_addr")))]
 pub fn is_global(addr: &SocketAddr) -> bool {
     use std::net::IpAddr;
 

@@ -22,6 +22,14 @@ if [[ -z $CI_BRANCH ]]; then
   CHANNEL=unknown
 fi
 
+maybeAllowPrivateAddr=
+if [[ -z $ALLOW_PRIVATE_ADDR ]]; then
+  ALLOW_PRIVATE_ADDR=false
+fi
+if [[ "$ALLOW_PRIVATE_ADDR" = "true" ]]; then
+  maybeAllowPrivateAddr="--allow-private-addr"
+fi
+
 eval "$(ci/channel-info.sh)"
 
 TAG=
@@ -83,7 +91,7 @@ echo --- Creating release tarball
   export CHANNEL
 
   source ci/rust-version.sh stable
-  scripts/cargo-install-all.sh stable "${RELEASE_BASENAME}"
+  scripts/cargo-install-all.sh stable "${maybeAllowPrivateAddr}" "${RELEASE_BASENAME}"
 
   tar cvf "${TARBALL_BASENAME}"-$TARGET.tar "${RELEASE_BASENAME}"
   bzip2 "${TARBALL_BASENAME}"-$TARGET.tar

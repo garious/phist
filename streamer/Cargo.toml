@@ -9,6 +9,9 @@ homepage = "https://solana.com/"
 documentation = "https://docs.rs/solana-streamer"
 edition = "2018"
 
+[features]
+allow_private_addr = []
+
 [dependencies]
 log = "0.4.14"
 solana-metrics = { path = "../metrics", version = "=1.8.0" }
