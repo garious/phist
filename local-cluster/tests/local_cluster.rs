@@ -13,7 +13,7 @@ use solana_client::{
 };
 use solana_core::{
     broadcast_stage::{broadcast_duplicates_run::BroadcastDuplicatesConfig, BroadcastStageType},
-    consensus::{Tower, SWITCH_FORK_THRESHOLD, VOTE_THRESHOLD_DEPTH},
+    consensus::{FileTowerStorage, Tower, SWITCH_FORK_THRESHOLD, VOTE_THRESHOLD_DEPTH},
     optimistic_confirmation_verifier::OptimisticConfirmationVerifier,
     replay_stage::DUPLICATE_THRESHOLD,
     validator::ValidatorConfig,
@@ -2395,6 +2395,8 @@ fn test_validator_saves_tower() {
         .ledger_path
         .clone();
 
+    let file_tower_storage = FileTowerStorage::new(ledger_path.to_path_buf());
+
     // Wait for some votes to be generated
     let mut last_replayed_root;
     loop {
@@ -2411,7 +2413,7 @@ fn test_validator_saves_tower() {
 
     // Stop validator and check saved tower
     let validator_info = cluster.exit_node(&validator_id);
-    let tower1 = Tower::restore(&ledger_path, &validator_id).unwrap();
+    let tower1 = Tower::restore(&file_tower_storage, &validator_id).unwrap();
     trace!("tower1: {:?}", tower1);
     assert_eq!(tower1.root(), 0);
 
@@ -2439,14 +2441,16 @@ fn test_validator_saves_tower() {
         .get_slot_with_commitment(CommitmentConfig::processed())
         .unwrap();
     let validator_info = cluster.exit_node(&validator_id);
-    let tower2 = Tower::restore(&ledger_path, &validator_id).unwrap();
+    let tower2 = Tower::restore(&file_tower_storage, &validator_id).unwrap();
     trace!("tower2: {:?}", tower2);
     assert_eq!(tower2.root(), last_replayed_root);
     last_replayed_root = recent_slot;
 
     // Rollback saved tower to `tower1` to simulate a validator starting from a newer snapshot
     // without having to wait for that snapshot to be generated in this test
-    tower1.save(&validator_identity_keypair).unwrap();
+    tower1
+        .save(&file_tower_storage, &validator_identity_keypair)
+        .unwrap();
 
     cluster.restart_node(&validator_id, validator_info);
     let validator_client = cluster.get_validator_client(&validator_id).unwrap();
@@ -2471,7 +2475,7 @@ fn test_validator_saves_tower() {
 
     // Check the new root is reflected in the saved tower state
     let mut validator_info = cluster.exit_node(&validator_id);
-    let tower3 = Tower::restore(&ledger_path, &validator_id).unwrap();
+    let tower3 = Tower::restore(&file_tower_storage, &validator_id).unwrap();
     trace!("tower3: {:?}", tower3);
     assert!(tower3.root() > last_replayed_root);
 
@@ -2499,7 +2503,7 @@ fn test_validator_saves_tower() {
 
     cluster.close_preserve_ledgers();
 
-    let tower4 = Tower::restore(&ledger_path, &validator_id).unwrap();
+    let tower4 = Tower::restore(&file_tower_storage, &validator_id).unwrap();
     trace!("tower4: {:?}", tower4);
     // should tower4 advance 1 slot compared to tower3????
     assert_eq!(tower4.root(), tower3.root() + 1);
@@ -2517,8 +2521,10 @@ fn purge_slots(blockstore: &Blockstore, start_slot: Slot, slot_count: Slot) {
     blockstore.purge_slots(start_slot, start_slot + slot_count, PurgeType::Exact);
 }
 
-fn restore_tower(ledger_path: &Path, node_pubkey: &Pubkey) -> Option<Tower> {
-    let tower = Tower::restore(ledger_path, node_pubkey);
+fn restore_tower(tower_path: &Path, node_pubkey: &Pubkey) -> Option<Tower> {
+    let file_tower_storage = FileTowerStorage::new(tower_path.to_path_buf());
+
+    let tower = Tower::restore(&file_tower_storage, node_pubkey);
     if let Err(tower_err) = tower {
         if tower_err.is_file_missing() {
             return None;
@@ -2527,19 +2533,20 @@ fn restore_tower(ledger_path: &Path, node_pubkey: &Pubkey) -> Option<Tower> {
         }
     }
     // actually saved tower must have at least one vote.
-    Tower::restore(ledger_path, node_pubkey).ok()
+    Tower::restore(&file_tower_storage, node_pubkey).ok()
 }
 
-fn last_vote_in_tower(ledger_path: &Path, node_pubkey: &Pubkey) -> Option<(Slot, Hash)> {
-    restore_tower(ledger_path, node_pubkey).map(|tower| tower.last_voted_slot_hash().unwrap())
+fn last_vote_in_tower(tower_path: &Path, node_pubkey: &Pubkey) -> Option<(Slot, Hash)> {
+    restore_tower(tower_path, node_pubkey).map(|tower| tower.last_voted_slot_hash().unwrap())
 }
 
-fn root_in_tower(ledger_path: &Path, node_pubkey: &Pubkey) -> Option<Slot> {
-    restore_tower(ledger_path, node_pubkey).map(|tower| tower.root())
+fn root_in_tower(tower_path: &Path, node_pubkey: &Pubkey) -> Option<Slot> {
+    restore_tower(tower_path, node_pubkey).map(|tower| tower.root())
 }
 
-fn remove_tower(ledger_path: &Path, node_pubkey: &Pubkey) {
-    fs::remove_file(Tower::get_filename(ledger_path, node_pubkey)).unwrap();
+fn remove_tower(tower_path: &Path, node_pubkey: &Pubkey) {
+    let file_tower_storage = FileTowerStorage::new(tower_path.to_path_buf());
+    fs::remove_file(file_tower_storage.filename(node_pubkey)).unwrap();
 }
 
 // A bit convoluted test case; but this roughly follows this test theoretical scenario:

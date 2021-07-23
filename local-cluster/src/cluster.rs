@@ -1,11 +1,8 @@
 use solana_client::thin_client::ThinClient;
-use solana_core::validator::Validator;
-use solana_core::validator::ValidatorConfig;
+use solana_core::validator::{Validator, ValidatorConfig};
 use solana_gossip::{cluster_info::Node, contact_info::ContactInfo};
-use solana_sdk::pubkey::Pubkey;
-use solana_sdk::signature::Keypair;
-use std::path::PathBuf;
-use std::sync::Arc;
+use solana_sdk::{pubkey::Pubkey, signature::Keypair};
+use std::{path::PathBuf, sync::Arc};
 
 pub struct ValidatorInfo {
     pub keypair: Arc<Keypair>,

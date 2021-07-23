@@ -8,6 +8,7 @@ use {
         },
     },
     solana_client::rpc_client::RpcClient,
+    solana_core::consensus::FileTowerStorage,
     solana_faucet::faucet::{run_local_faucet_with_port, FAUCET_PORT},
     solana_rpc::rpc::JsonRpcConfig,
     solana_sdk::{
@@ -513,7 +514,7 @@ fn main() {
             validator_exit: genesis.validator_exit.clone(),
             authorized_voter_keypairs: genesis.authorized_voter_keypairs.clone(),
             cluster_info: admin_service_cluster_info.clone(),
-            tower_path: ledger_path.clone(),
+            tower_storage: Arc::new(FileTowerStorage::new(ledger_path.clone())),
         },
     );
     let dashboard = if output == Output::Dashboard {

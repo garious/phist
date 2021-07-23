@@ -20,6 +20,7 @@ use {
         rpc_request::MAX_MULTIPLE_ACCOUNTS,
     },
     solana_core::{
+        consensus::FileTowerStorage,
         ledger_cleanup_service::{DEFAULT_MAX_LEDGER_SHREDS, DEFAULT_MIN_MAX_LEDGER_SHREDS},
         tpu::DEFAULT_TPU_COALESCE_MS,
         validator::{
@@ -2236,11 +2237,13 @@ pub fn main() {
         .ok()
         .or_else(|| get_cluster_shred_version(&entrypoint_addrs));
 
+    let tower_path = value_t!(matches, "tower", PathBuf)
+        .ok()
+        .unwrap_or_else(|| ledger_path.clone());
+
     let mut validator_config = ValidatorConfig {
         require_tower: matches.is_present("require_tower"),
-        tower_path: value_t!(matches, "tower", PathBuf)
-            .ok()
-            .or_else(|| Some(ledger_path.clone())),
+        tower_storage: Arc::new(FileTowerStorage::new(tower_path)),
         dev_halt_at_slot: value_t!(matches, "dev_halt_at_slot", Slot).ok(),
         cuda: matches.is_present("cuda"),
         expected_genesis_hash: matches
@@ -2545,7 +2548,7 @@ pub fn main() {
             start_progress: start_progress.clone(),
             authorized_voter_keypairs: authorized_voter_keypairs.clone(),
             cluster_info: admin_service_cluster_info.clone(),
-            tower_path: validator_config.tower_path.clone().unwrap(),
+            tower_storage: validator_config.tower_storage.clone(),
         },
     );
 

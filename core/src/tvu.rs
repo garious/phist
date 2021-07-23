@@ -11,7 +11,7 @@ use crate::{
     },
     cluster_slots::ClusterSlots,
     completed_data_sets_service::CompletedDataSetsSender,
-    consensus::Tower,
+    consensus::{Tower, TowerStorage},
     cost_model::CostModel,
     cost_update_service::CostUpdateService,
     ledger_cleanup_service::LedgerCleanupService,
@@ -114,6 +114,7 @@ impl Tvu {
         rpc_subscriptions: &Arc<RpcSubscriptions>,
         poh_recorder: &Arc<Mutex<PohRecorder>>,
         tower: Tower,
+        tower_storage: Arc<dyn TowerStorage>,
         leader_schedule_cache: &Arc<LeaderScheduleCache>,
         exit: &Arc<AtomicBool>,
         block_commitment_cache: Arc<RwLock<BlockCommitmentCache>>,
@@ -273,11 +274,16 @@ impl Tvu {
             cache_block_meta_sender,
             bank_notification_sender,
             wait_for_vote_to_start_leader: tvu_config.wait_for_vote_to_start_leader,
+            tower_storage: tower_storage.clone(),
         };
 
         let (voting_sender, voting_receiver) = channel();
-        let voting_service =
-            VotingService::new(voting_receiver, cluster_info.clone(), poh_recorder.clone());
+        let voting_service = VotingService::new(
+            voting_receiver,
+            cluster_info.clone(),
+            poh_recorder.clone(),
+            tower_storage,
+        );
 
         let (cost_update_sender, cost_update_receiver): (
             Sender<ExecuteTimings>,
@@ -440,6 +446,7 @@ pub mod tests {
             )),
             &poh_recorder,
             tower,
+            Arc::new(crate::consensus::FileTowerStorage::default()),
             &leader_schedule_cache,
             &exit,
             block_commitment_cache,
