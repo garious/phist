@@ -148,14 +148,8 @@ fn initialize_from_snapshot(
     fs::create_dir_all(&snapshot_config.snapshot_path).expect("Couldn't create snapshot directory");
 
     let archive_info =
-        snapshot_utils::get_highest_snapshot_archive_info(snapshot_output_dir.to_path_buf())
+        snapshot_utils::get_highest_full_snapshot_archive_info(snapshot_output_dir.to_path_buf())
             .unwrap();
-    let archive_filename = snapshot_utils::build_snapshot_archive_path(
-        snapshot_output_dir.to_path_buf(),
-        snapshot_info.0,
-        &snapshot_info.1,
-        archive_info.archive_format,
-    );
 
     let process_options = blockstore_processor::ProcessOptions {
         account_indexes: config.account_indexes.clone(),
@@ -167,12 +161,13 @@ fn initialize_from_snapshot(
         "Build bank from snapshot archive: {:?}",
         &snapshot_config.snapshot_path
     );
-    let (bank0, _) = snapshot_utils::bank_from_snapshot_archive(
+    let (bank0, _) = snapshot_utils::bank_from_snapshot_archives(
         account_paths,
         &[],
         &snapshot_config.snapshot_path,
-        &archive_filename,
-        archive_info.archive_format,
+        archive_info.path(),
+        None,
+        *archive_info.archive_format(),
         genesis_config,
         process_options.debug_keys.clone(),
         None,
@@ -336,7 +331,7 @@ fn run_replica_node(rpc_node_config: ReplicaNodeConfig) {
         snapshot_path,
         archive_format: ArchiveFormat::TarBzip2,
         snapshot_version: snapshot_utils::SnapshotVersion::default(),
-        maximum_snapshots_to_retain: snapshot_utils::DEFAULT_MAX_SNAPSHOTS_TO_RETAIN,
+        maximum_snapshots_to_retain: snapshot_utils::DEFAULT_MAX_FULL_SNAPSHOT_ARCHIVES_TO_RETAIN,
     };
 
     let bank_info = initialize_from_snapshot(
@@ -445,8 +440,8 @@ fn get_rpc_peer_node(
         );
 
         let mut highest_snapshot_hash: Option<(Slot, Hash)> =
-            snapshot_utils::get_highest_snapshot_archive_info(snapshot_output_dir).map(
-                |snapshot_archive_info| (snapshot_archive_info.slot, snapshot_archive_info.hash),
+            snapshot_utils::get_highest_full_snapshot_archive_info(snapshot_output_dir).map(
+                |snapshot_archive_info| (*snapshot_archive_info.slot(), *snapshot_archive_info.hash()),
             );
         let eligible_rpc_peers = {
             let mut eligible_rpc_peers = vec![];
