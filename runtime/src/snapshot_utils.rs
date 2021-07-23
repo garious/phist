@@ -133,15 +133,15 @@ impl IncrementalSnapshotArchiveInfo {
         })
     }
 
-    fn path(&self) -> &PathBuf {
+    pub fn path(&self) -> &PathBuf {
         &self.inner.path
     }
 
-    fn base_slot(&self) -> &Slot {
+    pub fn base_slot(&self) -> &Slot {
         &self.base_slot
     }
 
-    fn slot(&self) -> &Slot {
+    pub fn slot(&self) -> &Slot {
         &self.inner.slot
     }
 
@@ -368,7 +368,7 @@ where
 
 /// Package up bank snapshot files, snapshot storages, and slot deltas for an incremental snapshot.
 #[allow(clippy::too_many_arguments)]
-fn package_incremental_snapshot<P, Q>(
+pub fn package_incremental_snapshot<P, Q>(
     bank: &Bank,
     incremental_snapshot_base_slot: Slot,
     bank_snapshot_info: &BankSnapshotInfo,
@@ -420,6 +420,7 @@ where
     )
 }
 
+/// Create a snapshot package
 fn do_package_snapshot<P>(
     bank: &Bank,
     bank_snapshot_info: &BankSnapshotInfo,
@@ -434,8 +435,6 @@ fn do_package_snapshot<P>(
 where
     P: AsRef<Path>,
 {
-    // Create a snapshot package
-
     // Hard link the snapshot into a tmpdir, to ensure its not removed prior to packaging.
     {
         let snapshot_hardlink_dir = snapshot_tmpdir
