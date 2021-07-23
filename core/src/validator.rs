@@ -31,7 +31,7 @@ use solana_ledger::{
     bank_forks_utils,
     blockstore::{Blockstore, BlockstoreSignals, CompletedSlotsReceiver, PurgeType},
     blockstore_db::BlockstoreRecoveryMode,
-    blockstore_processor::{self, TransactionStatusSender},
+    blockstore_processor::{self, RpcAccountHistorySender, TransactionStatusSender},
     leader_schedule::FixedSchedule,
     leader_schedule_cache::LeaderScheduleCache,
 };
@@ -42,6 +42,9 @@ use solana_poh::{
     poh_service::{self, PohService},
 };
 use solana_rpc::{
+    account_history::{
+        AccountHistory, AccountHistoryConfig, AccountKeys, RpcAccountHistoryService,
+    },
     max_slots::MaxSlots,
     optimistically_confirmed_bank_tracker::{
         OptimisticallyConfirmedBank, OptimisticallyConfirmedBankTracker,
@@ -242,6 +245,14 @@ struct TransactionHistoryServices {
     cache_block_meta_service: Option<CacheBlockMetaService>,
 }
 
+#[derive(Default)]
+struct RpcAccountHistoryServices {
+    rpc_account_history_sender: Option<RpcAccountHistorySender>,
+    rpc_account_history_service: Option<RpcAccountHistoryService>,
+    rpc_account_history: Arc<RwLock<AccountHistory>>,
+    rpc_account_keys: Arc<RwLock<AccountKeys>>,
+}
+
 pub struct Validator {
     validator_exit: Arc<RwLock<Exit>>,
     json_rpc_service: Option<JsonRpcService>,
@@ -252,6 +263,7 @@ pub struct Validator {
     rewards_recorder_service: Option<RewardsRecorderService>,
     cache_block_meta_service: Option<CacheBlockMetaService>,
     sample_performance_service: Option<SamplePerformanceService>,
+    rpc_account_history_service: Option<RpcAccountHistoryService>,
     gossip_service: GossipService,
     serve_repair_service: ServeRepairService,
     completed_data_sets_service: CompletedDataSetsService,
@@ -381,6 +393,12 @@ impl Validator {
                 rewards_recorder_service,
                 cache_block_meta_sender,
                 cache_block_meta_service,
+            },
+            RpcAccountHistoryServices {
+                rpc_account_history_sender,
+                rpc_account_history_service,
+                rpc_account_history,
+                rpc_account_keys,
             },
             tower,
         ) = new_banks_from_ledger(
@@ -548,6 +566,8 @@ impl Validator {
                     max_slots.clone(),
                     leader_schedule_cache.clone(),
                     max_complete_transaction_status_slot,
+                    rpc_account_history,
+                    rpc_account_keys,
                 )),
                 if config.rpc_config.minimal_api {
                     None
@@ -724,6 +744,7 @@ impl Validator {
             transaction_status_sender.clone(),
             rewards_recorder_sender,
             cache_block_meta_sender,
+            rpc_account_history_sender,
             snapshot_config_and_pending_package,
             vote_tracker.clone(),
             retransmit_slots_sender,
@@ -794,6 +815,7 @@ impl Validator {
             sample_performance_service,
             snapshot_packager_service,
             completed_data_sets_service,
+            rpc_account_history_service,
             tpu,
             tvu,
             poh_service,
@@ -881,6 +903,12 @@ impl Validator {
             cache_block_meta_service
                 .join()
                 .expect("cache_block_meta_service");
+        }
+
+        if let Some(rpc_account_history_service) = self.rpc_account_history_service {
+            rpc_account_history_service
+                .join()
+                .expect("rpc_account_history_service");
         }
 
         if let Some(sample_performance_service) = self.sample_performance_service {
@@ -1057,6 +1085,7 @@ fn new_banks_from_ledger(
     LeaderScheduleCache,
     Option<(Slot, Hash)>,
     TransactionHistoryServices,
+    RpcAccountHistoryServices,
     Tower,
 ) {
     info!("loading ledger from {:?}...", ledger_path);
@@ -1149,6 +1178,16 @@ fn new_banks_from_ledger(
             TransactionHistoryServices::default()
         };
 
+    let rpc_account_history_services = match (
+        config.rpc_addrs,
+        config.rpc_config.enable_rpc_account_history,
+    ) {
+        (Some(_), Some(account_history_config)) => {
+            initialize_rpc_account_history_services(account_history_config, exit)
+        }
+        _ => RpcAccountHistoryServices::default(),
+    };
+
     let (mut bank_forks, mut leader_schedule_cache, snapshot_hash) = bank_forks_utils::load(
         &genesis_config,
         &blockstore,
@@ -1161,6 +1200,9 @@ fn new_banks_from_ledger(
             .as_ref(),
         transaction_history_services
             .cache_block_meta_sender
+            .as_ref(),
+        rpc_account_history_services
+            .rpc_account_history_sender
             .as_ref(),
     )
     .unwrap_or_else(|err| {
@@ -1245,6 +1287,7 @@ fn new_banks_from_ledger(
         leader_schedule_cache,
         snapshot_hash,
         transaction_history_services,
+        rpc_account_history_services,
         tower,
     )
 }
@@ -1362,6 +1405,29 @@ fn initialize_rpc_transaction_history_services(
         rewards_recorder_service,
         cache_block_meta_sender,
         cache_block_meta_service,
+    }
+}
+
+fn initialize_rpc_account_history_services(
+    config: AccountHistoryConfig,
+    exit: &Arc<AtomicBool>,
+) -> RpcAccountHistoryServices {
+    let rpc_account_history = Arc::new(RwLock::new(AccountHistory::new()));
+    let rpc_account_keys = Arc::new(RwLock::new(AccountKeys::new()));
+    let (rpc_account_history_sender, rpc_account_history_receiver) = unbounded();
+    let rpc_account_history_sender = Some(rpc_account_history_sender);
+    let rpc_account_history_service = Some(RpcAccountHistoryService::new(
+        config,
+        rpc_account_keys.clone(),
+        rpc_account_history.clone(),
+        rpc_account_history_receiver,
+        exit,
+    ));
+    RpcAccountHistoryServices {
+        rpc_account_history_sender,
+        rpc_account_history_service,
+        rpc_account_history,
+        rpc_account_keys,
     }
 }
 
