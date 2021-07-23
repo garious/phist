@@ -1074,7 +1074,8 @@ fn load_frozen_forks(
                     // Must be called after `squash()`, so that AccountsDb knows what
                     // the roots are for the cache flushing in exhaustively_free_unused_resource().
                     // This could take few secs; so update last_free later
-                    new_root_bank.exhaustively_free_unused_resource();
+                    // bprumo TODO: need to get real last_full_snapshot_slot here
+                    new_root_bank.exhaustively_free_unused_resource(None);
                     last_free = Instant::now();
                 }
 

@@ -2313,7 +2313,7 @@ impl Bank {
 
     // Should not be called outside of startup, will race with
     // concurrent cleaning logic in AccountsBackgroundService
-    pub fn exhaustively_free_unused_resource(&self) {
+    pub fn exhaustively_free_unused_resource(&self, last_full_snapshot_slot: Option<Slot>) {
         let mut flush = Measure::start("flush");
         // Flush all the rooted accounts. Must be called after `squash()`,
         // so that AccountsDb knows what the roots are.
@@ -2325,7 +2325,7 @@ impl Bank {
         // accounts that were included in the bank delta hash when the bank was frozen,
         // and if we clean them here, any newly created snapshot's hash for this bank
         // may not match the frozen hash.
-        self.clean_accounts(true, false);
+        self.clean_accounts(true, false, last_full_snapshot_slot);
         clean.stop();
 
         let mut shrink = Measure::start("shrink");
@@ -4858,7 +4858,7 @@ impl Bank {
         info!("cleaning..");
         let mut clean_time = Measure::start("clean");
         if self.slot() > 0 {
-            self.clean_accounts(true, true);
+            self.clean_accounts(true, true, None);
         }
         clean_time.stop();
 
@@ -5141,20 +5141,26 @@ impl Bank {
             .add_program(program_id, process_instruction_with_context);
     }
 
-    pub fn clean_accounts(&self, skip_last: bool, is_startup: bool) {
-        let max_clean_slot = if skip_last {
-            // Don't clean the slot we're snapshotting because it may have zero-lamport
-            // accounts that were included in the bank delta hash when the bank was frozen,
-            // and if we clean them here, any newly created snapshot's hash for this bank
-            // may not match the frozen hash.
-            Some(self.slot().saturating_sub(1))
-        } else {
-            None
-        };
-        self.rc
-            .accounts
-            .accounts_db
-            .clean_accounts(max_clean_slot, is_startup);
+    pub fn clean_accounts(
+        &self,
+        skip_last: bool,
+        is_startup: bool,
+        last_full_snapshot_slot: Option<Slot>,
+    ) {
+        // Don't clean the slot we're snapshotting because it may have zero-lamport
+        // accounts that were included in the bank delta hash when the bank was frozen,
+        // and if we clean them here, any newly created snapshot's hash for this bank
+        // may not match the frozen hash.
+        //
+        // So when we're snapshotting, set `skip_last` to true so the highest slot to clean is
+        // lowered by one.
+        let highest_slot_to_clean = skip_last.then(|| self.slot().saturating_sub(1));
+
+        self.rc.accounts.accounts_db.clean_accounts(
+            highest_slot_to_clean,
+            is_startup,
+            last_full_snapshot_slot,
+        );
     }
 
     pub fn shrink_all_slots(&self, is_startup: bool) {
@@ -7739,7 +7745,7 @@ pub(crate) mod tests {
         bank.squash();
         bank.force_flush_accounts_cache();
         let hash = bank.update_accounts_hash();
-        bank.clean_accounts(false, false);
+        bank.clean_accounts(false, false, None);
         assert_eq!(bank.update_accounts_hash(), hash);
 
         let bank0 = Arc::new(new_from_parent(&bank));
@@ -7759,14 +7765,14 @@ pub(crate) mod tests {
 
         info!("bank0 purge");
         let hash = bank0.update_accounts_hash();
-        bank0.clean_accounts(false, false);
+        bank0.clean_accounts(false, false, None);
         assert_eq!(bank0.update_accounts_hash(), hash);
 
         assert_eq!(bank0.get_account(&keypair.pubkey()).unwrap().lamports(), 10);
         assert_eq!(bank1.get_account(&keypair.pubkey()), None);
 
         info!("bank1 purge");
-        bank1.clean_accounts(false, false);
+        bank1.clean_accounts(false, false, None);
 
         assert_eq!(bank0.get_account(&keypair.pubkey()).unwrap().lamports(), 10);
         assert_eq!(bank1.get_account(&keypair.pubkey()), None);
@@ -7787,7 +7793,7 @@ pub(crate) mod tests {
         assert_eq!(bank0.get_account(&keypair.pubkey()), None);
         assert_eq!(bank1.get_account(&keypair.pubkey()), None);
         bank1.force_flush_accounts_cache();
-        bank1.clean_accounts(false, false);
+        bank1.clean_accounts(false, false, None);
 
         assert!(bank1.verify_bank_hash(true));
     }
@@ -11029,7 +11035,7 @@ pub(crate) mod tests {
 
         // Clean accounts, which should add earlier slots to the shrink
         // candidate set
-        bank2.clean_accounts(false, false);
+        bank2.clean_accounts(false, false, None);
 
         // Slots 0 and 1 should be candidates for shrinking, but slot 2
         // shouldn't because none of its accounts are outdated by a later
@@ -11085,7 +11091,7 @@ pub(crate) mod tests {
         goto_end_of_slot(Arc::<Bank>::get_mut(&mut bank).unwrap());
 
         bank.squash();
-        bank.clean_accounts(false, false);
+        bank.clean_accounts(false, false, None);
         let force_to_return_alive_account = 0;
         assert_eq!(
             bank.process_stale_slot_with_budget(22, force_to_return_alive_account),
@@ -12709,7 +12715,7 @@ pub(crate) mod tests {
                         current_major_fork_bank.squash();
                         // Try to get cache flush/clean to overlap with the scan
                         current_major_fork_bank.force_flush_accounts_cache();
-                        current_major_fork_bank.clean_accounts(false, false);
+                        current_major_fork_bank.clean_accounts(false, false, None);
                         // Move purge here so that Bank::drop()->purge_slots() doesn't race
                         // with clean. Simulates the call from AccountsBackgroundService
                         let is_abs_service = true;
@@ -12759,7 +12765,7 @@ pub(crate) mod tests {
                         current_bank.squash();
                         if current_bank.slot() % 2 == 0 {
                             current_bank.force_flush_accounts_cache();
-                            current_bank.clean_accounts(true, false);
+                            current_bank.clean_accounts(true, false, None);
                         }
                         prev_bank = current_bank.clone();
                         current_bank = Arc::new(Bank::new_from_parent(
@@ -13727,7 +13733,7 @@ pub(crate) mod tests {
         bank2.squash();
 
         drop(bank1);
-        bank2.clean_accounts(false, false);
+        bank2.clean_accounts(false, false, None);
 
         let expected_ref_count_for_cleaned_up_keys = 0;
         let expected_ref_count_for_keys_in_both_slot1_and_slot2 = 1;

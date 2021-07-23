@@ -59,7 +59,7 @@ fn test_shrink_and_clean() {
 
         // let's dance.
         for _ in 0..10 {
-            accounts.clean_accounts(None, false);
+            accounts.clean_accounts(None, false, None);
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
 
