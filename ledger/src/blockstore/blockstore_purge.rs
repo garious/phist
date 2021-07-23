@@ -145,10 +145,6 @@ impl Blockstore {
                 .is_ok()
             & self
                 .db
-                .delete_range_cf::<cf::ShredData>(&mut write_batch, from_slot, to_slot)
-                .is_ok()
-            & self
-                .db
                 .delete_range_cf::<cf::ShredCode>(&mut write_batch, from_slot, to_slot)
                 .is_ok()
             & self
@@ -221,6 +217,12 @@ impl Blockstore {
         write_timer.stop();
         purge_stats.delete_range += delete_range_timer.as_us();
         purge_stats.write_batch += write_timer.as_us();
+
+        for slot in from_slot..to_slot {
+            self.purge_data_shreds(slot);
+        }
+        self.shred_wal.lock().unwrap().purge(to_slot);
+
         // only drop w_active_transaction_status_index after we do db.write(write_batch);
         // otherwise, readers might be confused with inconsistent state between
         // self.active_transaction_status_index and RockDb's TransactionStatusIndex contents
@@ -242,10 +244,6 @@ impl Blockstore {
             && self
                 .db
                 .column::<cf::Root>()
-                .compact_range(from_slot, to_slot)
-                .unwrap_or(false)
-            && self
-                .data_shred_cf
                 .compact_range(from_slot, to_slot)
                 .unwrap_or(false)
             && self
@@ -415,13 +413,6 @@ pub mod tests {
                 .unwrap()
                 .next()
                 .map(|(slot, _)| slot >= min_slot)
-                .unwrap_or(true)
-            & blockstore
-                .db
-                .iter::<cf::ShredData>(IteratorMode::Start)
-                .unwrap()
-                .next()
-                .map(|((slot, _), _)| slot >= min_slot)
                 .unwrap_or(true)
             & blockstore
                 .db

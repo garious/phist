@@ -542,16 +542,26 @@ impl Shred {
         }
     }
 
-    // Get slot from a shred packet with partial deserialize
-    pub fn get_slot_from_packet(p: &Packet) -> Option<Slot> {
+    fn get_slot(data: &[u8]) -> Option<Slot> {
         let slot_start = OFFSET_OF_SHRED_SLOT;
         let slot_end = slot_start + SIZE_OF_SHRED_SLOT;
 
-        if slot_end > p.meta.size {
+        if slot_end > data.len() {
             return None;
         }
 
-        limited_deserialize::<Slot>(&p.data[slot_start..slot_end]).ok()
+        limited_deserialize::<Slot>(&data[slot_start..slot_end]).ok()
+    }
+
+    // Get slot from a shred packet with partial deserialize
+    pub fn get_slot_from_packet(p: &Packet) -> Option<Slot> {
+        // TODO: double check that fine to use p.data.len() over p.meta.size
+        Self::get_slot(&p.data)
+    }
+
+    // Get a slot from shred buffer with partial deserialize
+    pub fn get_slot_from_data(data: &[u8]) -> Option<Slot> {
+        Self::get_slot(data)
     }
 
     pub fn reference_tick_from_data(data: &[u8]) -> u8 {

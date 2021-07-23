@@ -15,6 +15,7 @@ byteorder = "1.4.3"
 chrono = { version = "0.4.11", features = ["serde"] }
 chrono-humanize = "0.2.1"
 crossbeam-channel = "0.5"
+dashmap = { version = "4.0.2", features = ["rayon", "raw-api"] }
 ed25519-dalek = "1.0.1"
 fs_extra = "1.2.0"
 futures = "0.3.15"
