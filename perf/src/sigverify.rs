@@ -118,10 +118,8 @@ fn verify_packet(packet: &mut Packet) {
         let pubkey_end = pubkey_start.saturating_add(size_of::<Pubkey>());
         let sig_end = sig_start.saturating_add(size_of::<Signature>());
 
-        if pubkey_end >= packet.meta.size || sig_end >= packet.meta.size {
-            packet.meta.discard = true;
-            return;
-        }
+        // get_packet_offsets should ensure pubkey_end and sig_end do
+        // not overflow packet.meta.size
 
         let signature = Signature::new(&packet.data[sig_start..sig_end]);
 
@@ -216,6 +214,10 @@ fn do_get_packet_offsets(
         .and_then(|v| v.checked_add(pubkey_start))
         .filter(|v| *v <= packet.meta.size)
         .ok_or(PacketError::InvalidPubkeyLen)?;
+
+    if pubkey_len < sig_len_untrusted {
+        return Err(PacketError::InvalidPubkeyLen);
+    }
 
     let sig_start = current_offset
         .checked_add(sig_size)
@@ -598,6 +600,65 @@ mod tests {
     }
 
     #[test]
+    fn test_pubkey_too_small() {
+        solana_logger::setup();
+        let mut tx = test_tx();
+        let sig = tx.signatures[0];
+        const NUM_SIG: usize = 18;
+        tx.signatures = vec![sig; NUM_SIG];
+        tx.message.account_keys = vec![];
+        tx.message.header.num_required_signatures = NUM_SIG as u8;
+        let mut packet = sigverify::make_packet_from_transaction(tx);
+
+        let res = sigverify::do_get_packet_offsets(&packet, 0);
+        assert_eq!(res, Err(PacketError::InvalidPubkeyLen));
+
+        verify_packet(&mut packet);
+        assert!(packet.meta.discard);
+
+        packet.meta.discard = false;
+        let mut batches = generate_packet_vec(&packet, 1, 1);
+        ed25519_verify(&mut batches);
+        assert!(batches[0].packets[0].meta.discard);
+    }
+
+    #[test]
+    fn test_pubkey_len() {
+        // See that the verify cannot walk off the end of the packet
+        // trying to index into the account_keys to access pubkey.
+        use solana_sdk::signer::{keypair::Keypair, Signer};
+        solana_logger::setup();
+
+        const NUM_SIG: usize = 17;
+        let keypair1 = Keypair::new();
+        let pubkey1 = keypair1.pubkey();
+        let mut message = Message::new(&[], Some(&pubkey1));
+        message.account_keys.push(pubkey1);
+        message.account_keys.push(pubkey1);
+        message.header.num_required_signatures = NUM_SIG as u8;
+        message.recent_blockhash = Hash(pubkey1.to_bytes());
+        let mut tx = Transaction::new_unsigned(message);
+
+        info!("message: {:?}", tx.message_data());
+        info!("tx: {:?}", tx);
+        let sig = keypair1.try_sign_message(&tx.message_data()).unwrap();
+        tx.signatures = vec![sig; NUM_SIG];
+
+        let mut packet = sigverify::make_packet_from_transaction(tx);
+
+        let res = sigverify::do_get_packet_offsets(&packet, 0);
+        assert_eq!(res, Err(PacketError::InvalidPubkeyLen));
+
+        verify_packet(&mut packet);
+        assert!(packet.meta.discard);
+
+        packet.meta.discard = false;
+        let mut batches = generate_packet_vec(&packet, 1, 1);
+        ed25519_verify(&mut batches);
+        assert!(batches[0].packets[0].meta.discard);
+    }
+
+    #[test]
     fn test_large_sig_len() {
         let tx = test_tx();
         let mut packet = sigverify::make_packet_from_transaction(tx);
@@ -748,10 +809,8 @@ mod tests {
 
         let mut batches = generate_packet_vec(&packet, n, 2);
 
-        let recycler = Recycler::default();
-        let recycler_out = Recycler::default();
         // verify packets
-        sigverify::ed25519_verify(&mut batches, &recycler, &recycler_out);
+        ed25519_verify(&mut batches);
 
         // check result
         let should_discard = modify_data;
@@ -759,6 +818,12 @@ mod tests {
             .iter()
             .flat_map(|p| &p.packets)
             .all(|p| p.meta.discard == should_discard));
+    }
+
+    fn ed25519_verify(batches: &mut [Packets]) {
+        let recycler = Recycler::default();
+        let recycler_out = Recycler::default();
+        sigverify::ed25519_verify(batches, &recycler, &recycler_out);
     }
 
     #[test]
@@ -770,10 +835,8 @@ mod tests {
 
         let mut batches = generate_packet_vec(&packet, 1, 1);
 
-        let recycler = Recycler::default();
-        let recycler_out = Recycler::default();
         // verify packets
-        sigverify::ed25519_verify(&mut batches, &recycler, &recycler_out);
+        ed25519_verify(&mut batches);
         assert!(batches
             .iter()
             .flat_map(|p| &p.packets)
@@ -810,10 +873,8 @@ mod tests {
 
         batches[0].packets.push(packet);
 
-        let recycler = Recycler::default();
-        let recycler_out = Recycler::default();
         // verify packets
-        sigverify::ed25519_verify(&mut batches, &recycler, &recycler_out);
+        ed25519_verify(&mut batches);
 
         // check result
         let ref_ans = 1u8;
