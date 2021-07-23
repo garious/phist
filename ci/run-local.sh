@@ -16,6 +16,12 @@ case $(uname -o) in
     ;;
 esac
 
+here="$(dirname "$0")"
+cargo="$(readlink -f "${here}/../cargo")"
+"$cargo" audit --version || "$cargo" install cargo-audit --version 0.14.1
+grcov --version || "$cargo" install grcov --version 0.8.0
+ulimit -n 500000
+
 steps=()
 steps+=(test-sanity)
 steps+=(shellcheck)

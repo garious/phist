@@ -146,6 +146,16 @@ pub fn append_to_ld_library_path(path: String) {
 }
 
 pub fn init_cuda() {
+    // force to ignore TEST_PERF_LIBS_CUDA and --cuda, to accomodate specific testing needs
+    if std::env::var("SOLANA_FORCE_NO_CUDA_FOR_CI").is_ok() {
+        // error!() is justified because:
+        //   - it won't be touched ever under production environment
+        //   - to indicate what the ultimate user (currently via ./ci/run-local.sh is assumed)
+        //     is doing as severe as possible
+        error!("Forcibly disabling CUDA as requested by SOLANA_FORCE_NO_CUDA_FOR_CI");
+        return;
+    }
+
     if let Some(perf_libs_path) = locate_perf_libs() {
         if let Some(cuda_home) = find_cuda_home(&perf_libs_path) {
             let cuda_lib64_dir = cuda_home.join("lib64");
