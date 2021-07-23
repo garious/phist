@@ -710,6 +710,23 @@ dependencies = [
 
 [[package]]
 name = "console"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c0994e656bba7b922d8dd1245db90672ffb701e684e45be58f20719d69abc5a"
+dependencies = [
+ "encode_unicode",
+ "lazy_static",
+ "libc",
+ "regex",
+ "terminal_size",
+ "termios",
+ "unicode-width",
+ "winapi 0.3.8",
+ "winapi-util",
+]
+
+[[package]]
+name = "console"
 version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3993e6445baa160675931ec041a5e03ca84b9c6e32a056150d3aa2bdda0a1f45"
@@ -1060,7 +1077,7 @@ version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c9dd058f8b65922819fabb4a41e7d1964e56344042c26efbccd465202c23fa0c"
 dependencies = [
- "console",
+ "console 0.14.1",
  "lazy_static",
  "tempfile",
  "zeroize",
@@ -2033,7 +2050,7 @@ version = "0.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2d207dc617c7a380ab07ff572a6e52fa202a2a8f355860ac9c38e23f8196be1b"
 dependencies = [
- "console",
+ "console 0.14.1",
  "lazy_static",
  "number_prefix",
  "regex",
@@ -4414,7 +4431,7 @@ dependencies = [
  "bs58 0.4.0",
  "chrono",
  "clap 2.33.3",
- "console",
+ "console 0.14.1",
  "const_format",
  "criterion-stats",
  "ctrlc",
@@ -4472,7 +4489,7 @@ dependencies = [
  "Inflector",
  "base64 0.13.0",
  "chrono",
- "console",
+ "console 0.14.1",
  "humantime",
  "indicatif",
  "serde",
@@ -4670,7 +4687,7 @@ name = "solana-download-utils"
 version = "1.8.0"
 dependencies = [
  "bzip2",
- "console",
+ "console 0.14.1",
  "indicatif",
  "log 0.4.14",
  "reqwest",
@@ -4873,7 +4890,7 @@ dependencies = [
  "bzip2",
  "chrono",
  "clap 2.33.3",
- "console",
+ "console 0.14.1",
  "ctrlc",
  "dirs-next",
  "indicatif",
@@ -5344,7 +5361,7 @@ name = "solana-remote-wallet"
 version = "1.8.0"
 dependencies = [
  "base32",
- "console",
+ "console 0.14.1",
  "dialoguer",
  "hidapi",
  "log 0.4.14",
@@ -5356,6 +5373,43 @@ dependencies = [
  "solana-sdk",
  "thiserror",
  "uriparse",
+]
+
+[[package]]
+name = "solana-replica-node"
+version = "1.8.0"
+dependencies = [
+ "bincode",
+ "chrono",
+ "clap 2.33.3",
+ "console 0.11.3",
+ "crossbeam-channel",
+ "jsonrpc-core",
+ "jsonrpc-core-client",
+ "jsonrpc-derive",
+ "jsonrpc-ipc-server",
+ "jsonrpc-server-utils",
+ "log 0.4.14",
+ "rand 0.7.3",
+ "serde",
+ "solana-clap-utils",
+ "solana-cli-config",
+ "solana-client",
+ "solana-core",
+ "solana-download-utils",
+ "solana-genesis-utils",
+ "solana-gossip",
+ "solana-ledger",
+ "solana-local-cluster",
+ "solana-logger 1.8.0",
+ "solana-metrics",
+ "solana-net-utils",
+ "solana-rpc",
+ "solana-runtime",
+ "solana-sdk",
+ "solana-validator",
+ "solana-version",
+ "tempdir",
 ]
 
 [[package]]
@@ -5681,7 +5735,7 @@ dependencies = [
  "bincode",
  "chrono",
  "clap 2.33.3",
- "console",
+ "console 0.14.1",
  "csv",
  "ctrlc",
  "dirs-next",
@@ -5746,7 +5800,7 @@ dependencies = [
  "bincode",
  "chrono",
  "clap 2.33.3",
- "console",
+ "console 0.14.1",
  "core_affinity",
  "fd-lock",
  "indicatif",
@@ -6109,6 +6163,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tempdir"
+version = "0.3.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15f2b5fb00ccdf689e0149d1b1b3c03fead81c2b37735d812fa8bddbbf41b6d8"
+dependencies = [
+ "rand 0.4.6",
+ "remove_dir_all",
+]
+
+[[package]]
 name = "tempfile"
 version = "3.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6139,6 +6203,15 @@ checksum = "86ca8ced750734db02076f44132d802af0b33b09942331f4459dde8636fd2406"
 dependencies = [
  "libc",
  "winapi 0.3.8",
+]
+
+[[package]]
+name = "termios"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "411c5bf740737c7918b8b1fe232dca4dc9f8e754b8ad5e20966814001ed0ac6b"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
