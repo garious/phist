@@ -433,15 +433,6 @@ Once your validator is operating normally, you can reduce the time it takes to
 restart your validator by adding the `--no-port-check` flag to your
 `solana-validator` command-line.
 
-### Disable snapshot compression to reduce CPU usage
-
-If you are not serving snapshots to other validators, snapshot compression can
-be disabled to reduce CPU load at the expense of slightly more disk usage for
-local snapshot storage.
-
-Add the `--snapshot-compression none` argument to your `solana-validator`
-command-line arguments and restart the validator.
-
 ### Using a ramdisk with spill-over into swap for the accounts database to reduce SSD wear
 
 If your machine has plenty of RAM, a tmpfs ramdisk
