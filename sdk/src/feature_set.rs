@@ -191,6 +191,10 @@ pub mod libsecp256k1_0_5_upgrade_enabled {
     solana_sdk::declare_id!("DhsYfRjxfnh2g7HKJYSzT79r74Afa1wbHkAgHndrA1oy");
 }
 
+pub mod cost_model {
+    solana_sdk::declare_id!("9FVQ9NkYZjS8xeR2pruUdwWLpFrXDoqBSjJKyrbnKaqd");
+}
+
 pub mod tx_wide_compute_cap {
     solana_sdk::declare_id!("5ekBxc8itEnPv4NzGJtr8BVVQLNMQuLMNQQj7pHoLNZ9");
 }
@@ -241,6 +245,7 @@ lazy_static! {
         (neon_evm_compute_budget::id(), "bump neon_evm's compute budget"),
         (rent_for_sysvars::id(), "collect rent from accounts owned by sysvars"),
         (libsecp256k1_0_5_upgrade_enabled::id(), "upgrade libsecp256k1 to v0.5.0"),
+        (cost_model::id(), "cost model feature that regulates block cost limits"),
         (tx_wide_compute_cap::id(), "Transaction wide compute cap"),
         (spl_token_v2_set_authority_fix::id(), "spl-token set_authority fix"),
         /*************** ADD NEW FEATURES HERE ***************/

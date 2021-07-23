@@ -32,6 +32,7 @@ use solana_sdk::{
         Slot, DEFAULT_TICKS_PER_SLOT, MAX_PROCESSING_AGE, MAX_TRANSACTION_FORWARDING_DELAY,
         MAX_TRANSACTION_FORWARDING_DELAY_GPU,
     },
+    feature_set,
     message::Message,
     pubkey::Pubkey,
     sanitized_transaction::SanitizedTransaction,
@@ -380,10 +381,14 @@ impl BankingStage {
 
     fn reset_cost_tracker_if_new_bank(
         cost_tracker: &Arc<RwLock<CostTracker>>,
-        bank_slot: Slot,
+        bank: Arc<Bank>,
         banking_stage_stats: &BankingStageStats,
     ) {
-        cost_tracker.write().unwrap().reset_if_new_bank(bank_slot);
+        if !bank.feature_set.is_active(&feature_set::cost_model::id()) {
+            return;
+        }
+
+        cost_tracker.write().unwrap().reset_if_new_bank(bank.slot());
         banking_stage_stats
             .reset_cost_tracker_count
             .fetch_add(1, Ordering::Relaxed);
@@ -430,7 +435,7 @@ impl BankingStage {
                 if let Some((bank, bank_creation_time)) = bank_start {
                     Self::reset_cost_tracker_if_new_bank(
                         cost_tracker,
-                        bank.slot(),
+                        bank.clone(),
                         banking_stage_stats,
                     );
                     let (processed, verified_txs_len, new_unprocessed_indexes) =
@@ -560,7 +565,7 @@ impl BankingStage {
             if let Some((ref bank, _)) = bank_start {
                 Self::reset_cost_tracker_if_new_bank(
                     cost_tracker,
-                    bank.slot(),
+                    bank.clone(),
                     banking_stage_stats,
                 );
             };
@@ -1062,6 +1067,7 @@ impl BankingStage {
         libsecp256k1_0_5_upgrade_enabled: bool,
         cost_tracker: &Arc<RwLock<CostTracker>>,
         banking_stage_stats: &BankingStageStats,
+        cost_model_enabled: bool,
     ) -> (Vec<SanitizedTransaction<'static>>, Vec<usize>, Vec<usize>) {
         let mut retryable_transaction_packet_indexes: Vec<usize> = vec![];
 
@@ -1089,9 +1095,12 @@ impl BankingStage {
             verified_transactions_with_packet_indexes
                 .into_iter()
                 .filter_map(|(tx, tx_index)| {
-                    let result = cost_tracker_readonly.would_transaction_fit(&tx);
-                    if result.is_err() {
-                        debug!("transaction {:?} would exceed limit: {:?}", tx, result);
+                    // put transaction into retry queue if cost_model_enabled AND it wouldn't fit
+                    // into current bank
+                    if cost_model_enabled
+                        && cost_tracker_readonly.would_transaction_fit(&tx).is_err()
+                    {
+                        debug!("transaction {:?} would exceed limit", tx);
                         retryable_transaction_packet_indexes.push(tx_index);
                         return None;
                     }
@@ -1163,6 +1172,8 @@ impl BankingStage {
         banking_stage_stats: &BankingStageStats,
         cost_tracker: &Arc<RwLock<CostTracker>>,
     ) -> (usize, usize, Vec<usize>) {
+        let cost_model_enabled = bank.feature_set.is_active(&feature_set::cost_model::id());
+
         let mut packet_conversion_time = Measure::start("packet_conversion");
         let (transactions, transaction_to_packet_indexes, retryable_packet_indexes) =
             Self::transactions_from_packets(
@@ -1171,6 +1182,7 @@ impl BankingStage {
                 bank.libsecp256k1_0_5_upgrade_enabled(),
                 cost_tracker,
                 banking_stage_stats,
+                cost_model_enabled,
             );
         packet_conversion_time.stop();
         inc_new_counter_info!("banking_stage-packet_conversion", 1);
@@ -1205,11 +1217,13 @@ impl BankingStage {
 
         // applying cost of processed transactions to shared cost_tracker
         let mut cost_tracking_time = Measure::start("cost_tracking_time");
-        transactions.iter().enumerate().for_each(|(index, tx)| {
-            if unprocessed_tx_indexes.iter().all(|&i| i != index) {
-                cost_tracker.write().unwrap().add_transaction_cost(tx);
-            }
-        });
+        if cost_model_enabled {
+            transactions.iter().enumerate().for_each(|(index, tx)| {
+                if unprocessed_tx_indexes.iter().all(|&i| i != index) {
+                    cost_tracker.write().unwrap().add_transaction_cost(tx);
+                }
+            });
+        }
         cost_tracking_time.stop();
 
         let mut filter_pending_packets_time = Measure::start("filter_pending_packets_time");
@@ -1264,6 +1278,7 @@ impl BankingStage {
             }
         }
 
+        let cost_model_enabled = bank.feature_set.is_active(&feature_set::cost_model::id());
         let mut unprocessed_packet_conversion_time =
             Measure::start("unprocessed_packet_conversion");
         let (transactions, transaction_to_packet_indexes, retry_packet_indexes) =
@@ -1273,6 +1288,7 @@ impl BankingStage {
                 bank.libsecp256k1_0_5_upgrade_enabled(),
                 cost_tracker,
                 banking_stage_stats,
+                cost_model_enabled,
             );
         unprocessed_packet_conversion_time.stop();
 
@@ -1372,7 +1388,7 @@ impl BankingStage {
                 continue;
             }
             let (bank, bank_creation_time) = bank_start.unwrap();
-            Self::reset_cost_tracker_if_new_bank(cost_tracker, bank.slot(), banking_stage_stats);
+            Self::reset_cost_tracker_if_new_bank(cost_tracker, bank.clone(), banking_stage_stats);
 
             let (processed, verified_txs_len, unprocessed_indexes) =
                 Self::process_packets_transactions(
