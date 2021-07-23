@@ -1,21 +1,17 @@
 use crate::{
-    cluster_slots::ClusterSlots,
     duplicate_repair_status::DeadSlotAncestorRequestStatus,
     outstanding_requests::OutstandingRequests,
     repair_response::{self},
     repair_service::{DuplicateSlotsResetSender, RepairInfo, RepairStatsGroup},
-    replay_stage::DUPLICATE_THRESHOLD,
     result::{Error, Result},
-    serve_repair::{AncestorHashesRepairType, ServeRepair},
+    serve_repair::AncestorHashesRepairType,
 };
 use dashmap::{mapref::entry::Entry::Occupied, DashMap};
 use solana_ledger::{blockstore::Blockstore, shred::SIZE_OF_NONCE};
 use solana_measure::measure::Measure;
 use solana_perf::{packet::limited_deserialize, recycler::Recycler};
-use solana_runtime::bank::Bank;
 use solana_sdk::{
     clock::{Slot, SLOT_MS},
-    pubkey::Pubkey,
     timing::timestamp,
 };
 use solana_streamer::{
@@ -23,7 +19,6 @@ use solana_streamer::{
     streamer::{self, PacketReceiver},
 };
 use std::{
-    collections::HashSet,
     net::UdpSocket,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -133,13 +128,13 @@ impl AncestorHashesService {
             false,
         );
 
+        // Listen for responses to our ancestor requests
         let ancestor_hashes_request_statuses: Arc<DashMap<Slot, DeadSlotAncestorRequestStatus>> =
             Arc::new(DashMap::new());
-        // Listen for responses to our ancestor requests
         let t_ancestor_hashes_responses = Self::run_responses_listener(
             ancestor_hashes_request_statuses.clone(),
             response_receiver,
-            blockstore.clone(),
+            blockstore,
             outstanding_requests.clone(),
             exit.clone(),
             repair_info.duplicate_slots_reset_sender.clone(),
@@ -149,7 +144,6 @@ impl AncestorHashesService {
         let t_ancestor_requests = Self::run_find_repairable_dead_slots(
             ancestor_hashes_request_statuses,
             ancestor_hashes_request_socket,
-            blockstore,
             repair_info,
             outstanding_requests,
             exit,
@@ -348,270 +342,23 @@ impl AncestorHashesService {
     }
 
     fn run_find_repairable_dead_slots(
-        ancestor_hashes_request_statuses: Arc<DashMap<Slot, DeadSlotAncestorRequestStatus>>,
-        ancestor_hashes_request_socket: Arc<UdpSocket>,
-        blockstore: Arc<Blockstore>,
-        repair_info: RepairInfo,
-        outstanding_requests: Arc<RwLock<OutstandingAncestorHashesRepairs>>,
+        _ancestor_hashes_request_statuses: Arc<DashMap<Slot, DeadSlotAncestorRequestStatus>>,
+        _ancestor_hashes_request_socket: Arc<UdpSocket>,
+        _repair_info: RepairInfo,
+        _outstanding_requests: Arc<RwLock<OutstandingAncestorHashesRepairs>>,
         exit: Arc<AtomicBool>,
     ) -> JoinHandle<()> {
-        let serve_repair = ServeRepair::new(repair_info.cluster_info.clone());
         let mut repair_stats = AncestorRepairRequestsStats::default();
 
-        // Sliding window that limits the number of slots repaired via AncestorRepair
-        // to MAX_ANCESTOR_HASHES_SLOT_REQUESTS_PER_SECOND/second
-        let mut request_throttle = vec![];
         Builder::new()
             .name("solana-find-repairable-dead-slots".to_string())
-            .spawn(move || {
-                loop {
-                    let root_bank = repair_info.bank_forks.read().unwrap().root_bank().clone();
-
-                    // Find if:
-                    //
-                    // 1) Any outstanding ancestor requests need to be retried, if so,
-                    // purge those entries from the tracker. The next call to
-                    // `find_new_repairable_dead_slots()` should then find these dead slots again
-                    // for retry.
-                    //
-                    // 2) The `requested_slot` is no longer dead. If so, that means the slot
-                    // was cleared and we won't discover this status again via `find_new_repairable_dead_slots`.
-                    // Because any valid responses (other than empty for non-duplicate confirmed slots) must:
-                    //  a) Include `requested_slot` in the response
-                    //  b) Our version of `requested_slot` was dead at the time the requests were made
-                    //
-                    // Then Replay should either:
-                    //
-                    // 1) Dump and clear the dead slot if the dead slot wasn't already
-                    // dumped by some other signal like DuplicateConfirmed.
-                    //
-                    // 2) If the slot was already dumped, then Replay got this signal,then finished
-                    // replaying and marked the slot dead AGAIN, then there is the worry that we
-                    // will fail to filter out the request here, and we won't start up another set
-                    // of Ancestor repairs for this slot/signal replay/cause it to dump the new bad
-                    // version of the slot. However, recall that Replay has a state machine that tracked
-                    // the first signal about the correct ancestors we sent, so it will consult that
-                    // again on the second bad slot and will re-dump that slot if the hash does not match.
-                    //
-                    // (Risk of immediately clearing when the sampled validators reach agreement and
-                    // BEFORE the dead flag is cleared is that `find_new_repairable_dead_slots()` will
-                    // find the same dead slot again).
-                    ancestor_hashes_request_statuses.retain(|requested_slot, status| {
-                        !status.is_expired() || blockstore.is_dead(*requested_slot)
-                    });
-
-                    // Keep around the last second of requests
-                    request_throttle.retain(|request_time| *request_time > (timestamp() - 1000));
-
-                    let repairable_dead_slots = Self::find_new_repairable_dead_slots(
-                        &ancestor_hashes_request_statuses,
-                        &blockstore,
-                        &repair_info.cluster_slots,
-                        &root_bank,
-                        Some(
-                            MAX_ANCESTOR_HASHES_SLOT_REQUESTS_PER_SECOND
-                                .saturating_sub(request_throttle.len()),
-                        ),
-                    );
-
-                    // Find dead slots for which it's worthwhile to ask the network for their
-                    // ancestors
-                    for slot in repairable_dead_slots {
-                        warn!(
-                            "Cluster froze slot: {}, but we marked it as dead.
-                            Initiating protocol to sample cluster for dead slot ancestors.",
-                            slot
-                        );
-
-                        Self::initiate_ancestor_hashes_requests_for_duplicate_slot(
-                            &ancestor_hashes_request_statuses,
-                            &ancestor_hashes_request_socket,
-                            &repair_info.cluster_slots,
-                            &serve_repair,
-                            &repair_info.repair_validators,
-                            slot,
-                            &mut repair_stats,
-                            &outstanding_requests,
-                        );
-
-                        request_throttle.push(timestamp());
-                    }
-
-                    if exit.load(Ordering::Relaxed) {
-                        return;
-                    }
-                    repair_stats.report();
-                    sleep(Duration::from_millis(SLOT_MS));
+            .spawn(move || loop {
+                if exit.load(Ordering::Relaxed) {
+                    return;
                 }
+                repair_stats.report();
+                sleep(Duration::from_millis(SLOT_MS));
             })
             .unwrap()
-    }
-
-    fn find_new_repairable_dead_slots(
-        ancestor_hashes_request_statuses: &DashMap<Slot, DeadSlotAncestorRequestStatus>,
-        blockstore: &Blockstore,
-        cluster_slots: &ClusterSlots,
-        root_bank: &Bank,
-        max_search_results: Option<usize>,
-    ) -> Vec<Slot> {
-        let dead_slots_iter = blockstore
-            .dead_slots_iterator(root_bank.slot() + 1)
-            .expect("Couldn't get dead slots iterator from blockstore");
-
-        let iter = dead_slots_iter.filter_map(|dead_slot| {
-            if ancestor_hashes_request_statuses.contains_key(&dead_slot) {
-                // Still in the middle of repairing this slot, skip for now
-                return None;
-            }
-            let status = cluster_slots.lookup(dead_slot);
-            status.and_then(|completed_dead_slot_pubkeys| {
-                let epoch = root_bank.get_epoch_and_slot_index(dead_slot).0;
-                if let Some(epoch_stakes) = root_bank.epoch_stakes(epoch) {
-                    let total_stake = epoch_stakes.total_stake();
-                    let node_id_to_vote_accounts = epoch_stakes.node_id_to_vote_accounts();
-                    let total_completed_slot_stake: u64 = completed_dead_slot_pubkeys
-                        .read()
-                        .unwrap()
-                        .iter()
-                        .map(|(node_key, _)| {
-                            node_id_to_vote_accounts
-                                .get(node_key)
-                                .map(|v| v.total_stake)
-                                .unwrap_or(0)
-                        })
-                        .sum();
-                    if total_completed_slot_stake as f64 / total_stake as f64 > DUPLICATE_THRESHOLD
-                    {
-                        // Begin the AncestorHashes repair procedure to figure out
-                        // if we have the correct versions of all the ancestors
-                        // leading up to this dead slot.
-                        Some(dead_slot)
-                    } else {
-                        None
-                    }
-                } else {
-                    error!(
-                        "Dead slot {} is too far ahead of root bank {}",
-                        dead_slot,
-                        root_bank.slot()
-                    );
-                    None
-                }
-            })
-        });
-
-        if let Some(max_search_results) = max_search_results {
-            iter.take(max_search_results).collect()
-        } else {
-            iter.collect()
-        }
-    }
-
-    fn initiate_ancestor_hashes_requests_for_duplicate_slot(
-        ancestor_hashes_request_statuses: &DashMap<Slot, DeadSlotAncestorRequestStatus>,
-        ancestor_hashes_request_socket: &UdpSocket,
-        cluster_slots: &ClusterSlots,
-        serve_repair: &ServeRepair,
-        repair_validators: &Option<HashSet<Pubkey>>,
-        duplicate_slot: Slot,
-        repair_stats: &mut AncestorRepairRequestsStats,
-        outstanding_requests: &RwLock<OutstandingAncestorHashesRepairs>,
-    ) {
-        let sampled_validators = serve_repair.repair_request_ancestor_hashes_sample_peers(
-            duplicate_slot,
-            cluster_slots,
-            repair_validators,
-        );
-
-        if let Ok(sampled_validators) = sampled_validators {
-            for (pubkey, socket_addr) in sampled_validators.iter() {
-                repair_stats
-                    .ancestor_requests
-                    .update(&pubkey, duplicate_slot, 0);
-                let nonce = outstanding_requests
-                    .write()
-                    .unwrap()
-                    .add_request(AncestorHashesRepairType(duplicate_slot), timestamp());
-                let request_bytes =
-                    serve_repair.ancestor_repair_request_bytes(duplicate_slot, nonce);
-                if let Ok(request_bytes) = request_bytes {
-                    let _ = ancestor_hashes_request_socket.send_to(&request_bytes, socket_addr);
-                }
-            }
-
-            let ancestor_request_status = DeadSlotAncestorRequestStatus::new(
-                sampled_validators
-                    .into_iter()
-                    .map(|(_pk, socket_addr)| socket_addr),
-                duplicate_slot,
-            );
-            assert!(!ancestor_hashes_request_statuses.contains_key(&duplicate_slot));
-            ancestor_hashes_request_statuses.insert(duplicate_slot, ancestor_request_status);
-        }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-    use solana_ledger::{blockstore::Blockstore, get_tmp_ledger_path};
-    use solana_runtime::{
-        bank::Bank,
-        genesis_utils::{self, GenesisConfigInfo, ValidatorVoteKeypairs},
-    };
-    use solana_sdk::signature::Signer;
-
-    #[test]
-    pub fn test_find_new_repairable_dead_slots() {
-        let blockstore_path = get_tmp_ledger_path!();
-        let blockstore = Blockstore::open(&blockstore_path).unwrap();
-        let cluster_slots = ClusterSlots::default();
-        let ancestor_hashes_request_statuses = DashMap::new();
-        let keypairs = ValidatorVoteKeypairs::new_rand();
-        let only_node_id = keypairs.node_keypair.pubkey();
-        let GenesisConfigInfo { genesis_config, .. } =
-            genesis_utils::create_genesis_config_with_vote_accounts(
-                1_000_000_000,
-                &[keypairs],
-                vec![100],
-            );
-        let bank0 = Bank::new(&genesis_config);
-
-        // Empty blockstore should have no duplicates
-        assert!(AncestorHashesService::find_new_repairable_dead_slots(
-            &ancestor_hashes_request_statuses,
-            &blockstore,
-            &cluster_slots,
-            &bank0,
-            None,
-        )
-        .is_empty());
-
-        // Insert a dead slot, but is not confirmed by network so should not
-        // be marked as duplicate
-        let dead_slot = 9;
-        blockstore.set_dead_slot(dead_slot).unwrap();
-        assert!(AncestorHashesService::find_new_repairable_dead_slots(
-            &ancestor_hashes_request_statuses,
-            &blockstore,
-            &cluster_slots,
-            &bank0,
-            None,
-        )
-        .is_empty());
-
-        // If supermajority confirms the slot, then dead slot should be
-        // marked as a duplicate that needs to be repaired
-        cluster_slots.insert_node_id(dead_slot, only_node_id);
-        assert_eq!(
-            AncestorHashesService::find_new_repairable_dead_slots(
-                &ancestor_hashes_request_statuses,
-                &blockstore,
-                &cluster_slots,
-                &bank0,
-                None,
-            ),
-            vec![dead_slot]
-        );
     }
 }
