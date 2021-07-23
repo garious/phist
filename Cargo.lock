@@ -4919,6 +4919,7 @@ version = "1.8.0"
 dependencies = [
  "assert_matches",
  "bincode",
+ "bv",
  "byteorder",
  "chrono",
  "chrono-humanize",

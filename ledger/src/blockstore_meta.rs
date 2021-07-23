@@ -1,7 +1,8 @@
 use crate::erasure::ErasureConfig;
+use bv::BitVec;
 use serde::{Deserialize, Serialize};
 use solana_sdk::{clock::Slot, hash::Hash};
-use std::{collections::BTreeSet, ops::RangeBounds};
+use std::{cmp, collections::BTreeSet, ops::Range};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 // The Meta column family
@@ -41,9 +42,25 @@ pub struct Index {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+/// Index recording presence/absence of shreds
+pub struct Index2 {
+    pub slot: Slot,
+    data: ShredIndex2,
+    coding: ShredIndex2,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 pub struct ShredIndex {
     /// Map representing presence/absence of shreds
-    index: BTreeSet<u64>,
+    pub index: BTreeSet<u64>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+pub struct ShredIndex2 {
+    /// BitVector representing presence/absence of shreds
+    index: BitVec,
+    /// Number of shreds present
+    num_present: usize,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
@@ -103,6 +120,14 @@ pub struct FrozenHashStatus {
 }
 
 impl Index {
+    pub(crate) fn to_index2(&self) -> Index2 {
+        Index2 {
+            slot: self.slot,
+            data: self.data.to_shred_index2(),
+            coding: self.coding.to_shred_index2(),
+        }
+    }
+    /*
     pub(crate) fn new(slot: Slot) -> Self {
         Index {
             slot,
@@ -121,12 +146,54 @@ impl Index {
     pub fn data_mut(&mut self) -> &mut ShredIndex {
         &mut self.data
     }
+
     pub fn coding_mut(&mut self) -> &mut ShredIndex {
+        &mut self.coding
+    }
+    */
+}
+
+impl Index2 {
+    pub(crate) fn new(slot: Slot) -> Self {
+        Index2 {
+            slot,
+            data: ShredIndex2::default(),
+            coding: ShredIndex2::default(),
+        }
+    }
+
+    pub(crate) fn to_index(&self) -> Index {
+        Index {
+            slot: self.slot,
+            data: self.data.to_shred_index(),
+            coding: self.coding.to_shred_index(),
+        }
+    }
+
+    pub fn data(&self) -> &ShredIndex2 {
+        &self.data
+    }
+    pub fn coding(&self) -> &ShredIndex2 {
+        &self.coding
+    }
+
+    pub fn data_mut(&mut self) -> &mut ShredIndex2 {
+        &mut self.data
+    }
+
+    pub fn coding_mut(&mut self) -> &mut ShredIndex2 {
         &mut self.coding
     }
 }
 
 impl ShredIndex {
+    /*
+    NOTE:
+        Remove entire interface as we should be interfacing with ShredIndex2; the only method left
+        is to convert ShredIndex to ShredIndex2 to support case where blockstore has a ShredIndex
+        for a slot but not a ShredIndex2. This could be the case for data that was inserted before
+        this change was present on node.
+
     pub fn num_shreds(&self) -> usize {
         self.index.len()
     }
@@ -152,9 +219,70 @@ impl ShredIndex {
             self.set_present(idx, present);
         }
     }
+    */
+    pub fn to_shred_index2(&self) -> ShredIndex2 {
+        let mut new_index = ShredIndex2::default();
+        // ShredIndex2 grows when there is an index value inserted out of range.
+        // So, use a reverse iterator so it is only resized once at the start.
+        for idx in self.index.iter().rev() {
+            new_index.set_present(*idx, true);
+        }
+        new_index
+    }
+}
 
-    pub fn largest(&self) -> Option<u64> {
-        self.index.iter().rev().next().copied()
+impl ShredIndex2 {
+    pub fn num_shreds(&self) -> usize {
+        self.num_present
+    }
+
+    pub fn present_in_bounds(&self, range: Range<u64>) -> usize {
+        let mut count = 0;
+        // We should only search in the overlap of the index's values and range
+        for idx in cmp::min(range.start, self.index.len())..cmp::min(range.end, self.index.len()) {
+            if self.index.get(idx) {
+                count += 1;
+            }
+        }
+        count
+    }
+
+    pub fn is_present(&self, index: u64) -> bool {
+        // BitVec::get() panics if index is out of range so explicitly check
+        index < self.index.len() && self.index.get(index)
+    }
+
+    pub fn set_present(&mut self, index: u64, presence: bool) {
+        // Extend self.index if necessary to accomodate index, but do not shrink
+        self.index
+            .resize(cmp::max(index + 1, self.index.len()), false);
+        let previous = self.index.get(index);
+        // Only need to update state if the value is changing; this prevents double count on add/remove
+        if previous ^ presence {
+            self.index.set(index, presence);
+            if presence {
+                self.num_present += 1;
+            } else {
+                self.num_present -= 1;
+            }
+        }
+    }
+
+    pub fn set_many_present(&mut self, presence: impl IntoIterator<Item = (u64, bool)>) {
+        for (idx, present) in presence.into_iter() {
+            self.set_present(idx, present);
+        }
+    }
+
+    // NOTE: this function should only be used to convert when writing to blockstore
+    pub fn to_shred_index(&self) -> ShredIndex {
+        let mut new_index = ShredIndex::default();
+        for idx in 0..self.index.len() {
+            if self.is_present(idx) {
+                new_index.index.insert(idx);
+            }
+        }
+        new_index
     }
 }
 
@@ -224,11 +352,12 @@ impl ErasureMeta {
         }
     }
 
-    pub fn status(&self, index: &Index) -> ErasureMetaStatus {
+    pub fn status(&self, index: &Index2) -> ErasureMetaStatus {
         use ErasureMetaStatus::*;
 
-        let coding_indices = self.set_index..self.set_index + self.config.num_coding() as u64;
-        let num_coding = index.coding().present_in_bounds(coding_indices);
+        let num_coding = index
+            .coding()
+            .present_in_bounds(self.set_index..self.set_index + self.config.num_coding() as u64);
         let num_data = index
             .data()
             .present_in_bounds(self.set_index..self.set_index + self.config.num_data() as u64);
@@ -292,6 +421,30 @@ mod test {
     use std::iter::repeat;
 
     #[test]
+    fn test_shred_index() {
+        let mut index = ShredIndex2::default();
+        let new_idx = 2;
+        assert!(!index.is_present(new_idx));
+        assert_eq!(index.num_shreds(), 0);
+
+        index.set_present(new_idx, true);
+        assert!(index.is_present(new_idx));
+        assert_eq!(index.num_shreds(), 1);
+
+        index.set_present(new_idx, false);
+        assert!(!index.is_present(new_idx));
+        assert_eq!(index.num_shreds(), 0);
+
+        // Check boundary conditions; start is inclusive, end is inclusive
+        index.set_many_present((5..10_u64).zip(repeat(true)));
+        assert_eq!(index.present_in_bounds(0..5), 0);
+        assert_eq!(index.present_in_bounds(2..7), 2);
+        assert_eq!(index.present_in_bounds(5..10), 5);
+        assert_eq!(index.present_in_bounds(7..12), 3);
+        assert_eq!(index.present_in_bounds(10..15), 0);
+    }
+
+    #[test]
     fn test_erasure_meta_status() {
         use ErasureMetaStatus::*;
 
@@ -300,7 +453,7 @@ mod test {
 
         let mut e_meta = ErasureMeta::new(set_index, erasure_config);
         let mut rng = thread_rng();
-        let mut index = Index::new(0);
+        let mut index = Index2::new(0);
         e_meta.size = 1;
 
         let data_indexes = 0..erasure_config.num_data() as u64;

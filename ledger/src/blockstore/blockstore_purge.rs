@@ -173,6 +173,10 @@ impl Blockstore {
                 .is_ok()
             & self
                 .db
+                .delete_range_cf::<cf::Index2>(&mut write_batch, from_slot, to_slot)
+                .is_ok()
+            & self
+                .db
                 .delete_range_cf::<cf::Rewards>(&mut write_batch, from_slot, to_slot)
                 .is_ok()
             & self
@@ -461,6 +465,13 @@ pub mod tests {
             & blockstore
                 .db
                 .iter::<cf::Index>(IteratorMode::Start)
+                .unwrap()
+                .next()
+                .map(|(slot, _)| slot >= min_slot)
+                .unwrap_or(true)
+            & blockstore
+                .db
+                .iter::<cf::Index2>(IteratorMode::Start)
                 .unwrap()
                 .next()
                 .map(|(slot, _)| slot >= min_slot)

@@ -51,8 +51,10 @@ const ORPHANS_CF: &str = "orphans";
 const BANK_HASH_CF: &str = "bank_hashes";
 // Column family for root data
 const ROOT_CF: &str = "root";
-/// Column family for indexes
+/// (Deprecated) Column family for indexes
 const INDEX_CF: &str = "index";
+/// Column family for indexes
+const INDEX_CF2: &str = "index2";
 /// Column family for Data Shreds
 const DATA_SHRED_CF: &str = "data_shred";
 /// Column family for Code Shreds
@@ -144,8 +146,12 @@ pub mod columns {
     pub struct Root;
 
     #[derive(Debug)]
-    /// The index column
+    /// (Deprecated) The index column
     pub struct Index;
+
+    #[derive(Debug)]
+    /// The index column
+    pub struct Index2;
 
     #[derive(Debug)]
     /// The shred data column
@@ -316,6 +322,10 @@ impl Rocks {
             Index::NAME,
             get_cf_options::<Index>(&access_type, &oldest_slot),
         );
+        let index2_cf_descriptor = ColumnFamilyDescriptor::new(
+            Index2::NAME,
+            get_cf_options::<Index2>(&access_type, &oldest_slot),
+        );
         let shred_data_cf_descriptor = ColumnFamilyDescriptor::new(
             ShredData::NAME,
             get_cf_options::<ShredData>(&access_type, &oldest_slot),
@@ -368,6 +378,7 @@ impl Rocks {
             (BankHash::NAME, bank_hash_cf_descriptor),
             (Root::NAME, root_cf_descriptor),
             (Index::NAME, index_cf_descriptor),
+            (Index2::NAME, index2_cf_descriptor),
             (ShredData::NAME, shred_data_cf_descriptor),
             (ShredCode::NAME, shred_code_cf_descriptor),
             (TransactionStatus::NAME, transaction_status_cf_descriptor),
@@ -486,6 +497,7 @@ impl Rocks {
             DeadSlots::NAME,
             DuplicateSlots::NAME,
             Index::NAME,
+            Index2::NAME,
             Orphans::NAME,
             BankHash::NAME,
             Root::NAME,
@@ -865,6 +877,14 @@ impl ColumnName for columns::Index {
 }
 impl TypedColumn for columns::Index {
     type Type = blockstore_meta::Index;
+}
+
+impl SlotColumn for columns::Index2 {}
+impl ColumnName for columns::Index2 {
+    const NAME: &'static str = INDEX_CF2;
+}
+impl TypedColumn for columns::Index2 {
+    type Type = blockstore_meta::Index2;
 }
 
 impl SlotColumn for columns::DeadSlots {}

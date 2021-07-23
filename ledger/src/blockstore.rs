@@ -135,6 +135,7 @@ pub struct Blockstore {
     erasure_meta_cf: LedgerColumn<cf::ErasureMeta>,
     orphans_cf: LedgerColumn<cf::Orphans>,
     index_cf: LedgerColumn<cf::Index>,
+    index2_cf: LedgerColumn<cf::Index2>,
     data_shred_cf: LedgerColumn<cf::ShredData>,
     code_shred_cf: LedgerColumn<cf::ShredCode>,
     transaction_status_cf: LedgerColumn<cf::TransactionStatus>,
@@ -177,7 +178,7 @@ struct SlotStats {
 }
 
 pub struct IndexMetaWorkingSetEntry {
-    index: Index,
+    index: Index2,
     // true only if at least one shred for this Index was inserted since the time this
     // struct was created
     did_insert_occur: bool,
@@ -336,6 +337,7 @@ impl Blockstore {
         // known parent
         let orphans_cf = db.column();
         let index_cf = db.column();
+        let index2_cf = db.column();
 
         let data_shred_cf = db.column();
         let code_shred_cf = db.column();
@@ -386,6 +388,7 @@ impl Blockstore {
             erasure_meta_cf,
             orphans_cf,
             index_cf,
+            index2_cf,
             data_shred_cf,
             code_shred_cf,
             transaction_status_cf,
@@ -580,7 +583,7 @@ impl Blockstore {
     }
 
     fn get_recovery_data_shreds(
-        index: &mut Index,
+        index: &mut Index2,
         set_index: u64,
         slot: Slot,
         erasure_meta: &ErasureMeta,
@@ -608,7 +611,7 @@ impl Blockstore {
     }
 
     fn get_recovery_coding_shreds(
-        index: &mut Index,
+        index: &mut Index2,
         slot: Slot,
         erasure_meta: &ErasureMeta,
         available_shreds: &mut Vec<Shred>,
@@ -649,7 +652,7 @@ impl Blockstore {
     }
 
     fn recover_shreds(
-        index: &mut Index,
+        index: &mut Index2,
         set_index: u64,
         erasure_meta: &ErasureMeta,
         prev_inserted_datas: &mut HashMap<(u64, u64), Shred>,
@@ -974,7 +977,8 @@ impl Blockstore {
 
         for (&slot, index_working_set_entry) in index_working_set.iter() {
             if index_working_set_entry.did_insert_occur {
-                write_batch.put::<cf::Index>(slot, &index_working_set_entry.index)?;
+                write_batch.put::<cf::Index2>(slot, &index_working_set_entry.index)?;
+                write_batch.put::<cf::Index>(slot, &index_working_set_entry.index.to_index())?;
             }
         }
         start.stop();
@@ -1312,7 +1316,7 @@ impl Blockstore {
 
     fn insert_coding_shred(
         &self,
-        index_meta: &mut Index,
+        index_meta: &mut Index2,
         shred: &Shred,
         write_batch: &mut WriteBatch,
     ) -> Result<()> {
@@ -1331,7 +1335,11 @@ impl Blockstore {
         Ok(())
     }
 
-    fn is_data_shred_present(shred: &Shred, slot_meta: &SlotMeta, data_index: &ShredIndex) -> bool {
+    fn is_data_shred_present(
+        shred: &Shred,
+        slot_meta: &SlotMeta,
+        data_index: &ShredIndex2,
+    ) -> bool {
         let shred_index = u64::from(shred.index());
         // Check that the shred doesn't already exist in blockstore
         shred_index < slot_meta.consumed || data_index.is_present(shred_index)
@@ -1487,7 +1495,7 @@ impl Blockstore {
     fn insert_data_shred(
         &self,
         slot_meta: &mut SlotMeta,
-        data_index: &mut ShredIndex,
+        data_index: &mut ShredIndex2,
         shred: &Shred,
         write_batch: &mut WriteBatch,
         shred_source: ShredSource,
@@ -1729,8 +1737,30 @@ impl Blockstore {
         Ok(num_data)
     }
 
-    pub fn get_index(&self, slot: Slot) -> Result<Option<Index>> {
-        self.index_cf.get(slot)
+    fn get_index_with_fallback(
+        index_cf: &LedgerColumn<cf::Index>,
+        index2_cf: &LedgerColumn<cf::Index2>,
+        slot: Slot,
+    ) -> Result<Option<Index2>> {
+        // First attempt to read from new CF. If that fails, fallback on the
+        // old CF in the case that data was inserted into blockstore before change
+        // with new CF was baked into binary. After enough time, the second read
+        // should fail 100% of the time, at which point, we should rip out fallback.
+        let first_attempt = index2_cf.get(slot)?;
+        match first_attempt {
+            Some(index) => Ok(Some(index)),
+            None => {
+                let second_attempt = index_cf.get(slot)?;
+                match second_attempt {
+                    Some(index) => Ok(Some(index.to_index2())),
+                    None => Ok(None),
+                }
+            }
+        }
+    }
+
+    pub fn get_index(&self, slot: Slot) -> Result<Option<Index2>> {
+        Self::get_index_with_fallback(&self.index_cf, &self.index2_cf, slot)
     }
 
     /// Manually update the meta for a slot.
@@ -3201,7 +3231,7 @@ impl Blockstore {
 fn update_completed_data_indexes(
     is_last_in_data: bool,
     new_shred_index: u32,
-    received_data_shreds: &ShredIndex,
+    received_data_shreds: &ShredIndex2,
     // Sorted array of shred indexes marked data complete
     completed_data_indexes: &mut Vec<u32>,
 ) -> Vec<(u32, u32)> {
@@ -3285,7 +3315,7 @@ fn update_slot_meta(
     index: u32,
     new_consumed: u64,
     reference_tick: u8,
-    received_data_shreds: &ShredIndex,
+    received_data_shreds: &ShredIndex2,
 ) -> Vec<(u32, u32)> {
     let maybe_first_insert = slot_meta.received == 0;
     // Index is zero-indexed, while the "received" height starts from 1,
@@ -3326,12 +3356,12 @@ fn get_index_meta_entry<'a>(
     index_meta_time: &mut u64,
 ) -> &'a mut IndexMetaWorkingSetEntry {
     let index_cf = db.column::<cf::Index>();
+    let index2_cf = db.column::<cf::Index2>();
     let mut total_start = Measure::start("Total elapsed");
     let res = index_working_set.entry(slot).or_insert_with(|| {
-        let newly_inserted_meta = index_cf
-            .get(slot)
+        let newly_inserted_meta = Blockstore::get_index_with_fallback(&index_cf, &index2_cf, slot)
             .unwrap()
-            .unwrap_or_else(|| Index::new(slot));
+            .unwrap_or_else(|| Index2::new(slot));
         IndexMetaWorkingSetEntry {
             index: newly_inserted_meta,
             did_insert_occur: false,
@@ -5667,7 +5697,7 @@ pub mod tests {
         let blockstore_path = get_tmp_ledger_path!();
         {
             let blockstore = Blockstore::open(&blockstore_path).unwrap();
-            let index_cf = blockstore.db.column::<cf::Index>();
+            let index_cf = blockstore.db.column::<cf::Index2>();
 
             blockstore
                 .insert_shreds(shreds[0..5].to_vec(), None, false)
@@ -5849,10 +5879,10 @@ pub mod tests {
                     DataShredHeader::default(),
                     coding.clone(),
                 );
-                coding_shred.common_header.fec_set_index = std::u32::MAX - 1;
+                coding_shred.common_header.fec_set_index = MAX_DATA_SHREDS_PER_SLOT as u32 - 1;
                 coding_shred.coding_header.num_coding_shreds = 3;
-                coding_shred.common_header.index = std::u32::MAX - 1;
-                assert!(!Blockstore::should_insert_coding_shred(
+                coding_shred.common_header.index = MAX_DATA_SHREDS_PER_SLOT as u32 - 1;
+                assert!(Blockstore::should_insert_coding_shred(
                     &coding_shred,
                     &last_root
                 ));
@@ -8344,7 +8374,7 @@ pub mod tests {
     #[test]
     fn test_update_completed_data_indexes() {
         let mut completed_data_indexes: Vec<u32> = vec![];
-        let mut shred_index = ShredIndex::default();
+        let mut shred_index = ShredIndex2::default();
 
         for i in 0..10 {
             shred_index.set_present(i as u64, true);
@@ -8359,7 +8389,7 @@ pub mod tests {
     #[test]
     fn test_update_completed_data_indexes_out_of_order() {
         let mut completed_data_indexes = vec![];
-        let mut shred_index = ShredIndex::default();
+        let mut shred_index = ShredIndex2::default();
 
         shred_index.set_present(4, true);
         assert!(
@@ -8694,7 +8724,7 @@ pub mod tests {
         };
 
         let get_expected_slot_meta_and_index_meta =
-            |blockstore: &Blockstore, shreds: Vec<Shred>| -> (SlotMeta, Index) {
+            |blockstore: &Blockstore, shreds: Vec<Shred>| -> (SlotMeta, Index2) {
                 let slot = shreds[0].slot();
                 blockstore
                     .insert_shreds(shreds.clone(), None, false)
