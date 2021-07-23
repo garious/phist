@@ -206,8 +206,8 @@ native machine code before execting it in the virtual machine.",
     .unwrap();
 
     if matches.is_present("verify") {
-        let (_, elf_bytes) = executable.get_text_bytes().unwrap();
-        check(elf_bytes).unwrap();
+        let text_bytes = executable.get_text_bytes().1;
+        check(text_bytes, &config).unwrap();
     }
     executable.jit_compile().unwrap();
     let analysis = Analysis::from_executable(executable.as_ref());

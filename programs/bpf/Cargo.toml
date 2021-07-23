@@ -30,7 +30,7 @@ solana-bpf-loader-program = { path = "../bpf_loader", version = "=1.8.0" }
 solana-cli-output = { path = "../../cli-output", version = "=1.8.0" }
 solana-logger = { path = "../../logger", version = "=1.8.0" }
 solana-measure = { path = "../../measure", version = "=1.8.0" }
-solana_rbpf = "=0.2.13"
+solana_rbpf = "=0.2.14"
 solana-runtime = { path = "../../runtime", version = "=1.8.0" }
 solana-sdk = { path = "../../sdk", version = "=1.8.0" }
 solana-transaction-status = { path = "../../transaction-status", version = "=1.8.0" }

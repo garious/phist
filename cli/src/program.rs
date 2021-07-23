@@ -1791,9 +1791,10 @@ fn read_and_verify_elf(program_location: &str) -> Result<Vec<u8>, Box<dyn std::e
     // Verify the program
     <dyn Executable<BpfError, ThisInstructionMeter>>::from_elf(
         &program_data,
-        Some(|x| verifier::check(x)),
+        Some(verifier::check),
         Config {
             reject_unresolved_syscalls: true,
+            verify_mul64_imm_nonzero: true, // TODO: Remove me after feature gate
             ..Config::default()
         },
         register_syscalls(&mut invoke_context).unwrap(),

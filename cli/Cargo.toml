@@ -39,7 +39,7 @@ solana-config-program = { path = "../programs/config", version = "=1.8.0" }
 solana-faucet = { path = "../faucet", version = "=1.8.0" }
 solana-logger = { path = "../logger", version = "=1.8.0" }
 solana-net-utils = { path = "../net-utils", version = "=1.8.0" }
-solana_rbpf = "=0.2.13"
+solana_rbpf = "=0.2.14"
 solana-remote-wallet = { path = "../remote-wallet", version = "=1.8.0" }
 solana-sdk = { path = "../sdk", version = "=1.8.0" }
 solana-transaction-status = { path = "../transaction-status", version = "=1.8.0" }

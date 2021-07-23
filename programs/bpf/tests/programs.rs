@@ -1258,11 +1258,8 @@ fn test_program_bpf_call_depth() {
     let result = bank_client.send_and_confirm_instruction(&mint_keypair, instruction);
     assert!(result.is_ok());
 
-    let instruction = Instruction::new_with_bincode(
-        program_id,
-        &ComputeBudget::default().max_call_depth,
-        vec![],
-    );
+    let instruction =
+        Instruction::new_with_bincode(program_id, &ComputeBudget::default().max_call_depth, vec![]);
     let result = bank_client.send_and_confirm_instruction(&mint_keypair, instruction);
     assert!(result.is_err());
 }

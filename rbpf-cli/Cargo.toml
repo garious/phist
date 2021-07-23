@@ -15,5 +15,5 @@ serde_json = "1.0.64"
 solana-bpf-loader-program = { path = "../programs/bpf_loader", version = "=1.8.0" }
 solana-logger = { path = "../logger", version = "=1.8.0" }
 solana-sdk = { path = "../sdk", version = "=1.8.0" }
-solana_rbpf = "=0.2.13"
+solana_rbpf = "=0.2.14"
 time = "0.2.25"
