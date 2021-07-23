@@ -44,9 +44,9 @@ pub fn recv_mmsg(sock: &UdpSocket, packets: &mut [Packet]) -> io::Result<(usize,
     use std::os::unix::io::AsRawFd;
 
     let mut hdrs: [mmsghdr; NUM_RCVMMSGS] = unsafe { mem::zeroed() };
-    let mut iovs: [iovec; NUM_RCVMMSGS] = unsafe { mem::zeroed() };
-    let mut addr: [sockaddr_in; NUM_RCVMMSGS] = unsafe { mem::zeroed() };
-    let addrlen = mem::size_of_val(&addr) as socklen_t;
+    let mut iovs: [iovec; NUM_RCVMMSGS] = unsafe { mem::MaybeUninit::uninit().assume_init() };
+    //let mut addr: [sockaddr_in; NUM_RCVMMSGS] = unsafe { mem::MaybeUninit::uninit().assume_init() };
+    //let addrlen = mem::size_of_val(&addr) as socklen_t;
 
     let sock_fd = sock.as_raw_fd();
 
@@ -56,8 +56,8 @@ pub fn recv_mmsg(sock: &UdpSocket, packets: &mut [Packet]) -> io::Result<(usize,
         iovs[i].iov_base = packets[i].data.as_mut_ptr() as *mut c_void;
         iovs[i].iov_len = packets[i].data.len();
 
-        hdrs[i].msg_hdr.msg_name = &mut addr[i] as *mut _ as *mut _;
-        hdrs[i].msg_hdr.msg_namelen = addrlen;
+        //hdrs[i].msg_hdr.msg_name = &mut addr[i] as *mut _ as *mut _;
+        //hdrs[i].msg_hdr.msg_namelen = addrlen;
         hdrs[i].msg_hdr.msg_iov = &mut iovs[i];
         hdrs[i].msg_hdr.msg_iovlen = 1;
     }
@@ -75,8 +75,8 @@ pub fn recv_mmsg(sock: &UdpSocket, packets: &mut [Packet]) -> io::Result<(usize,
                     let mut p = &mut packets[i];
                     p.meta.size = hdrs[i].msg_len as usize;
                     total_size += p.meta.size;
-                    let inet_addr = InetAddr::V4(addr[i]);
-                    p.meta.set_addr(&inet_addr.to_std());
+                    //let inet_addr = InetAddr::V4(addr[i]);
+                    //p.meta.set_addr(&inet_addr.to_std());
                 }
                 n as usize
             }
