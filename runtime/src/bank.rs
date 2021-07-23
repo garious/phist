@@ -1802,41 +1802,6 @@ impl Bank {
         self.epoch_schedule.get_slots_in_epoch(prev_epoch) as f64 / self.slots_per_year
     }
 
-    fn rewrite_stakes(&self) -> (usize, usize) {
-        let mut examined_count = 0;
-        let mut rewritten_count = 0;
-        self.cloned_stake_delegations()
-            .into_iter()
-            .for_each(|(stake_pubkey, _delegation)| {
-                examined_count += 1;
-                if let Some(mut stake_account) = self.get_account_with_fixed_root(&stake_pubkey) {
-                    if let Ok(result) =
-                        stake_state::rewrite_stakes(&mut stake_account, &self.rent_collector.rent)
-                    {
-                        self.store_account(&stake_pubkey, &stake_account);
-                        let message = format!("rewrote stake: {}, {:?}", stake_pubkey, result);
-                        info!("{}", message);
-                        datapoint_info!("stake_info", ("info", message, String));
-                        rewritten_count += 1;
-                    }
-                }
-            });
-
-        info!(
-            "bank (slot: {}): rewrite_stakes: {} accounts rewritten / {} accounts examined",
-            self.slot(),
-            rewritten_count,
-            examined_count,
-        );
-        datapoint_info!(
-            "rewrite-stakes",
-            ("examined_count", examined_count, i64),
-            ("rewritten_count", rewritten_count, i64)
-        );
-
-        (examined_count, rewritten_count)
-    }
-
     // Calculates the starting-slot for inflation from the activation slot.
     // This method assumes that `pico_inflation` will be enabled before `full_inflation`, giving
     // precedence to the latter. However, since `pico_inflation` is fixed-rate Inflation, should
@@ -5261,16 +5226,7 @@ impl Bank {
         if new_feature_activations.contains(&feature_set::spl_token_v2_set_authority_fix::id()) {
             self.apply_spl_token_v2_set_authority_fix();
         }
-        // Remove me after a while around v1.6
-        if !self.no_stake_rewrite.load(Relaxed)
-            && new_feature_activations.contains(&feature_set::rewrite_stake::id())
-        {
-            // to avoid any potential risk of wrongly rewriting accounts in the future,
-            // only do this once, taking small risk of unknown
-            // bugs which again creates bad stake accounts..
 
-            self.rewrite_stakes();
-        }
         if new_feature_activations.contains(&feature_set::rent_for_sysvars::id()) {
             // when this feature is activated, immediately all of existing sysvars are susceptible
             // to rent collection and account data removal due to insufficient balance due to only
@@ -13008,26 +12964,6 @@ pub(crate) mod tests {
                 AcceptableScanResults::Both,
             );
         }
-    }
-
-    #[test]
-    fn test_stake_rewrite() {
-        let GenesisConfigInfo { genesis_config, .. } =
-            create_genesis_config_with_leader(500, &solana_sdk::pubkey::new_rand(), 1);
-        let bank = Arc::new(Bank::new(&genesis_config));
-
-        // quickest way of creting bad stake account
-        let bootstrap_stake_pubkey = bank
-            .cloned_stake_delegations()
-            .keys()
-            .next()
-            .copied()
-            .unwrap();
-        let mut bootstrap_stake_account = bank.get_account(&bootstrap_stake_pubkey).unwrap();
-        bootstrap_stake_account.set_lamports(10000000);
-        bank.store_account(&bootstrap_stake_pubkey, &bootstrap_stake_account);
-
-        assert_eq!(bank.rewrite_stakes(), (1, 1));
     }
 
     #[test]

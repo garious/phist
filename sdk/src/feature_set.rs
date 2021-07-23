@@ -71,10 +71,6 @@ pub mod stake_program_v2 {
     solana_sdk::declare_id!("Gvd9gGJZDHGMNf1b3jkxrfBQSR5etrfTQSBNKCvLSFJN");
 }
 
-pub mod rewrite_stake {
-    solana_sdk::declare_id!("6ap2eGy7wx5JmsWUmQ5sHwEWrFSDUxSti2k5Hbfv5BZG");
-}
-
 pub mod filter_stake_delegation_accounts {
     solana_sdk::declare_id!("GE7fRxmW46K6EmCD9AMZSbnaJ2e3LfqCZzdHi9hmYAgi");
 }
@@ -210,7 +206,6 @@ lazy_static! {
         (spl_token_v2_multisig_fix::id(), "spl-token multisig fix"),
         (no_overflow_rent_distribution::id(), "no overflow rent distribution"),
         (stake_program_v2::id(), "solana_stake_program v2"),
-        (rewrite_stake::id(), "rewrite stake"),
         (filter_stake_delegation_accounts::id(), "filter stake_delegation_accounts #14062"),
         (bpf_loader_upgradeable_program::id(), "upgradeable bpf loader"),
         (stake_program_v3::id(), "solana_stake_program v3"),
