@@ -10,7 +10,15 @@ pub use solana_perf::packet::{
 
 use solana_metrics::inc_new_counter_debug;
 pub use solana_sdk::packet::{Meta, Packet, PACKET_DATA_SIZE};
-use std::{io::Result, net::UdpSocket, time::Instant};
+use std::{
+    io,
+    io::Result,
+    net::UdpSocket,
+    thread::sleep,
+    time::{Duration, Instant},
+};
+
+pub const RECV_BUFFER_DELAY_US: u64 = 50;
 
 pub fn recv_from(obj: &mut Packets, socket: &UdpSocket, max_wait_ms: u64) -> Result<usize> {
     let mut i = 0;
@@ -23,13 +31,20 @@ pub fn recv_from(obj: &mut Packets, socket: &UdpSocket, max_wait_ms: u64) -> Res
     socket.set_nonblocking(false)?;
     trace!("receiving on {}", socket.local_addr().unwrap());
     let start = Instant::now();
+
     loop {
         obj.packets.resize(
             std::cmp::min(i + NUM_RCVMMSGS, PACKETS_PER_BATCH),
             Packet::default(),
         );
-        match recv_mmsg(socket, &mut obj.packets[i..]) {
-            Err(_) if i > 0 => {
+        match recv_mmsg(socket, &mut obj.packets[i..], max_wait_ms) {
+            Err(e) if i > 0 => {
+                if e.kind() == io::ErrorKind::WouldBlock
+                    && (start.elapsed().as_micros() + RECV_BUFFER_DELAY_US as u128)
+                        < (max_wait_ms * 1_000) as u128
+                {
+                    sleep(Duration::from_micros(RECV_BUFFER_DELAY_US));
+                }
                 if start.elapsed().as_millis() as u64 > max_wait_ms {
                     break;
                 }
@@ -39,10 +54,13 @@ pub fn recv_from(obj: &mut Packets, socket: &UdpSocket, max_wait_ms: u64) -> Res
                 return Err(e);
             }
             Ok((_, npkts)) => {
+                trace!("got {} packets", npkts);
+                if npkts == 0 {
+                    break;
+                }
                 if i == 0 {
                     socket.set_nonblocking(true)?;
                 }
-                trace!("got {} packets", npkts);
                 i += npkts;
                 // Try to batch into big enough buffers
                 // will cause less re-shuffling later on.
@@ -52,6 +70,7 @@ pub fn recv_from(obj: &mut Packets, socket: &UdpSocket, max_wait_ms: u64) -> Res
             }
         }
     }
+
     obj.packets.truncate(i);
     inc_new_counter_debug!("packets-recv_count", i);
     Ok(i)
