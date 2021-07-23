@@ -753,7 +753,7 @@ impl ReplayStage {
                     if !did_complete_bank {
                         // only wait for the signal if we did not just process a bank; maybe there are more slots available
 
-                        let timer = Duration::from_millis(100);
+                        let timer = Duration::from_millis(10);
                         let result = ledger_signal_receiver.recv_timeout(timer);
                         match result {
                             Err(RecvTimeoutError::Timeout) => (),
