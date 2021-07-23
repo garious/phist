@@ -20,6 +20,8 @@ use {
         rpc_request::MAX_MULTIPLE_ACCOUNTS,
     },
     solana_core::{
+        broadcast_stage::broadcast_duplicates_run::BroadcastDuplicatesConfig,
+        broadcast_stage::BroadcastStageType,
         ledger_cleanup_service::{DEFAULT_MAX_LEDGER_SHREDS, DEFAULT_MIN_MAX_LEDGER_SHREDS},
         tpu::DEFAULT_TPU_COALESCE_MS,
         validator::{
@@ -1501,6 +1503,28 @@ pub fn main() {
                 .help("Add a hard fork at this slot"),
         )
         .arg(
+            Arg::with_name("broadcast_stage_type")
+                .long("broadcast-stage-type")
+                .value_name("TYPE")
+                .takes_value(true)
+                .possible_values(&[
+                    "standard",
+                    "fail_entry_verification",
+                    "broadcast_fake_shreds",
+                    "broadcast_duplicates"])
+                .default_value("standard")
+                .hidden(true),
+        )
+        .arg(
+            Arg::with_name("duplicate_stake_partition")
+                .long("duplicate-stake-partition")
+                .value_name("STAKE")
+                .takes_value(true)
+                .requires("broadcast_stage_type")
+                .default_value("50")
+                .hidden(true),
+        )
+        .arg(
             Arg::with_name("trusted_validators")
                 .long("trusted-validator")
                 .validator(is_pubkey)
@@ -2155,6 +2179,17 @@ pub fn main() {
         ),
     };
 
+    let broadcast_stage_type = match matches.value_of("broadcast_stage_type") {
+        Some("fail_entry_verification") => BroadcastStageType::FailEntryVerification,
+        Some("broadcast_fake_shreds") => BroadcastStageType::BroadcastFakeShreds,
+        Some("broadcast_duplicates") => {
+            BroadcastStageType::BroadcastDuplicates(BroadcastDuplicatesConfig {
+                stake_partition: value_t!(matches, "duplicate_stake_partition", u64).unwrap(),
+            })
+        }
+        _ => BroadcastStageType::Standard,
+    };
+
     let private_rpc = matches.is_present("private_rpc");
     let no_port_check = matches.is_present("no_port_check");
     let no_rocksdb_compaction = true;
@@ -2325,6 +2360,7 @@ pub fn main() {
                 usize
             ),
         },
+        broadcast_stage_type,
         voting_disabled: matches.is_present("no_voting") || restricted_repair_only_mode,
         wait_for_supermajority: value_t!(matches, "wait_for_supermajority", Slot).ok(),
         trusted_validators,

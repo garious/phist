@@ -136,11 +136,32 @@ function launch_testnet() {
     maybeExtraPrimordialStakes="--extra-primordial-stakes $EXTRA_PRIMORDIAL_STAKES"
   fi
 
+  DUPLICATE_SENDER_NODES=0
+  FAKE_SHRED_NODES=0
+  FAIL_ENTRY_NODES=0
+
+  declare maybeDuplicateStakePartition
+  declare maybeDuplicateSendDelay
+  if [[ -n "$NUMBER_OF_DUPLICATE_SENDER_NODES" ]]; then
+    DUPLICATE_SENDER_NODES="$NUMBER_OF_DUPLICATE_SENDER_NODES"
+    if [[ -n "$DUPLICATE_STAKE_PARTITION" ]]; then
+      maybeDuplicateStakePartition="--duplicate-stake-partition $DUPLICATE_STAKE_PARTITION"
+    fi
+  fi
+  if [[ -n "$NUMBER_OF_FAKE_SHRED_NODES" ]]; then
+    FAKE_SHRED_NODES="$NUMBER_OF_FAKE_SHRED_NODES"
+  fi
+  if [[ -n "$NUMBER_OF_FAIL_ENTRY_VERIFICATION_NODES" ]]; then
+    FAIL_ENTRY_NODES="$NUMBER_OF_FAIL_ENTRY_VERIFICATION_NODES"
+  fi
+
   # shellcheck disable=SC2068
   # shellcheck disable=SC2086
   "${REPO_ROOT}"/net/net.sh start $version_args \
     -c idle=$NUMBER_OF_CLIENT_NODES $maybeStartAllowBootFailures \
-    --gpu-mode $startGpuMode $maybeWarpSlot $maybeAsyncNodeInit $maybeExtraPrimordialStakes
+    --gpu-mode $startGpuMode $maybeWarpSlot $maybeAsyncNodeInit $maybeExtraPrimordialStakes \
+    --duplicate $DUPLICATE_SENDER_NODES --fake-shred $FAKE_SHRED_NODES --fail-entry $FAIL_ENTRY_NODES \
+    $maybeDuplicateStakePartition $maybeDuplicateSendDelay
 
   if [[ -n "$WAIT_FOR_EQUAL_STAKE" ]]; then
     wait_for_equal_stake
@@ -353,6 +374,10 @@ TEST_PARAMS_TO_DISPLAY=(CLOUD_PROVIDER \
                         PARTITION_ACTIVE_DURATION \
                         PARTITION_INACTIVE_DURATION \
                         PARTITION_ITERATION_COUNT \
+                        NUMBER_OF_DUPLICATE_SENDER_NODES \
+                        DUPLICATE_STAKE_PARTITION \
+                        NUMBER_OF_FAKE_SHRED_NODES \
+                        NUMBER_OF_FAIL_ENTRY_VERIFICATION_NODES \
                         TEST_TYPE \
                         CUSTOM_SCRIPT \
                         )

@@ -1,0 +1,23 @@
+steps:
+  - command: "system-test/testnet-automation.sh"
+    label: "GCE - CPU Only 5 Node - 1 Duplicate shred sender"
+    env:
+      UPLOAD_RESULTS_TO_SLACK: "false"
+      CLOUD_PROVIDER: "gce"
+      TESTNET_TAG: "gce-perf-cpu-only"
+      NUMBER_OF_VALIDATOR_NODES: 5
+      EXTRA_PRIMORDIAL_STAKES: 5
+      WAIT_FOR_EQUAL_STAKE: "true"
+      ENABLE_GPU: "false"
+      VALIDATOR_NODE_MACHINE_TYPE: "--machine-type n1-standard-16"
+      NUMBER_OF_CLIENT_NODES: 1
+      CLIENT_OPTIONS: "bench-tps=1=--tx_count 10000 --thread-batch-sleep-ms 250"
+      TESTNET_ZONES: "us-west1-a"
+      USE_PUBLIC_IP_ADDRESSES: "true"
+      ADDITIONAL_FLAGS: "--dedicated"
+      TEST_TYPE: "fixed_duration"
+      TEST_DURATION_SECONDS: 30
+      NUMBER_OF_DUPLICATE_SENDER_NODES: 1
+      DUPLICATE_STAKE_PARTITION: 50
+    agents:
+      - "queue=gce-deploy"

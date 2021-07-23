@@ -105,6 +105,15 @@ Operate a configured testnet
                                       - Override the number of slots in an epoch
    --warp-slot WARP_SLOT
                                       - Boot from a snapshot that has warped ahead to WARP_SLOT rather than a slot 0 genesis.
+   --duplicates NUM_NODES
+                                      - NUM_NODES will send duplicate shreds
+   --duplicate-stake-partition STAKE
+                                      - Percentage of stake to send duplicate shreds to (requires --duplicates)
+   --fake-shred NUM_NODES
+                                      - NUM_NODES will send fake shreds
+   --fail-entry NUM_NODES
+                                      - NUM_NODES will send duplicate slots that lead to PoH entry failure
+
  sanity/start-specific options:
    -F                   - Discard validator nodes that didn't bootup successfully
    -o noInstallCheck    - Skip solana-install sanity
@@ -340,6 +349,22 @@ startNode() {
     exit 1
   fi
 
+  broadcastArgs=""
+
+  fakeShredCutoff=$((duplicateNodes + fakeShredNodes))
+  failEntryCutoff=$((fakeShredCutoff + failEntryNodes))
+  if [[ $duplicateNodes -ne 0 && $nodeIndex -le $duplicateNodes ]]; then
+    echo "Starting node $nodeIndex with duplicate broadcast mode"
+    broadcastArgs="--broadcast-stage-type broadcast_duplicates $maybeDuplicateStakePartition"
+  elif [[ $fakeShredCutoff -ne 0 && $nodeIndex -le $fakeShredCutoff ]]; then
+    echo "Starting node $nodeIndex with fake shred broadcast mode"
+    broadcastArgs="--broadcast-stage-type broadcast_fake_shreds"
+  elif [[ $failEntryCutoff -ne 0 && $nodeIndex -le $failEntryCutoff ]]; then
+    echo "Starting node $nodeIndex with fail entry verification broadcast mode"
+    broadcastArgs="--broadcast-stage-type fail_entry_verification"
+  fi
+
+
   echo "--- Starting $nodeType: $ipAddress"
   echo "start log: $logFile"
   (
@@ -384,6 +409,7 @@ startNode() {
          \"$waitForNodeInit\" \
          \"$extraPrimordialStakes\" \
          \"$TMPFS_ACCOUNTS\" \
+         \"$broadcastArgs\"
       "
   ) >> "$logFile" 2>&1 &
   declare pid=$!
@@ -787,6 +813,10 @@ netLogDir=
 maybeWarpSlot=
 waitForNodeInit=true
 extraPrimordialStakes=0
+duplicateNodes=0
+fakeShredNodes=0
+failEntryNodes=0
+maybeDuplicateStakePartition=""
 
 command=$1
 [[ -n $command ]] || usage
@@ -898,6 +928,18 @@ while [[ -n $1 ]]; do
       shift 1
     elif [[ $1 == --extra-primordial-stakes ]]; then
       extraPrimordialStakes=$2
+      shift 2
+    elif [[ $1 == --duplicate ]]; then
+      duplicateNodes=$2
+      shift 2
+    elif [[ $1 == --fake-shred ]]; then
+      fakeShredNodes=$2
+      shift 2
+    elif [[ $1 == --fail-entry ]]; then
+      failEntryNodes=$2
+      shift 2
+    elif [[ $1 == --duplicate-stake-partition ]]; then
+      maybeDuplicateStakePartition="$1 $2"
       shift 2
     else
       usage "Unknown long option: $1"

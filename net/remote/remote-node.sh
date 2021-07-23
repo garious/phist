@@ -27,6 +27,7 @@ maybeWarpSlot="${18}"
 waitForNodeInit="${19}"
 extraPrimordialStakes="${20:=0}"
 tmpfsAccounts="${21:false}"
+broadcastArgs="${22}"
 set +x
 
 missing() {
@@ -384,6 +385,8 @@ EOF
     args+=(--init-complete-file "$initCompleteFile")
     # shellcheck disable=SC2206 # Don't want to double quote $extraNodeArgs
     args+=($extraNodeArgs)
+    # shellcheck disable=SC2206 # Don't want to double quote $broadcastArgs
+    args+=($broadcastArgs)
 
     maybeSkipAccountsCreation=
     if [[ $nodeIndex -le $extraPrimordialStakes ]]; then
